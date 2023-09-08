@@ -1,298 +1,529 @@
-use std::fs::{self, File};
-use std::io::{Read, Write};
-use std::path::{PathBuf};
-use std::process::exit;
-
-use fuzzy_matcher::skim::SkimMatcherV2;
+use std::fs;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::thread::{sleep};
+use std::time::Duration;
 use fuzzy_matcher::FuzzyMatcher;
-use simple_kl_rs::actions::{DoNothingAction, ExtensionAction, OpenInBrowser, ResultAction};
-use simple_kl_rs::extensions::Function::{GetResults, RunAction};
-use simple_kl_rs::extensions::{emit_results, get_parameters};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use simple_kl_rs::actions::{DialogAction, DialogField, ExtensionAction, get_dialog_result, get_dialog_results, InputField, notify, OpenInBrowser, ResultAction, SelectField, SelectOption};
+use simple_kl_rs::extensions::{emit_results, Function, get_parameters};
 use simple_kl_rs::paths::{get_extension_icon, get_home_path};
-use simple_kl_rs::results::{
-    IconWithTextResult, IconWithTitleAndDescriptionResult, SimpleKLResult,
-};
+use simple_kl_rs::results::{IconWithTextResult, IconWithTitleAndDescriptionResult, SimpleKLResult};
+use crate::bookmarks::{Bookmark, BookmarkGroup, BookmarksFile};
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct Bookmark {
-    name: String,
-    url: String,
-}
+pub mod bookmarks;
 
-fn get_bookmarks_folder_path() -> PathBuf {
+fn get_bookmarks_folder_path() -> Option<PathBuf> {
+    let mut path = get_home_path()
+        .expect("Error getting home path");
 
-    let mut path = get_home_path().unwrap();
     path.push(".config/simple-kl-bookmarks");
 
-    return path
+    return Some(path);
 }
 
-fn get_bookmarks_file_path() -> PathBuf {
+fn get_bookmarks_file_path() -> Option<PathBuf> {
+    let mut path = get_home_path()
+        .expect("Error getting home path");
 
-    let mut path = get_home_path().unwrap();
     path.push(".config/simple-kl-bookmarks/bookmarks.yml");
 
-    return path
+    return Some(path);
 }
 
-fn get_bookmarks() -> Vec<Bookmark> {
-    let mut bookmarks_file =
-        File::open(&get_bookmarks_file_path()).expect("Error opening bookmarks file");
-    let mut file_content = "".to_string();
+fn init_bookmarks() {
+    let bookmarks_folder = get_bookmarks_folder_path()
+        .expect("Error getting bookmarks folder");
 
-    bookmarks_file
-        .read_to_string(&mut file_content)
-        .expect("Error reading bookmarks");
+    //Creates the folder if it doesn't exist
+    if !Path::new(&bookmarks_folder).exists() {
+        fs::create_dir_all(bookmarks_folder)
+            .expect("Error creating bookmarks folder");
 
-    bookmarks_file
-        .flush()
-        .expect("Error closing bookmarks file");
+        let mut file = File::create(get_bookmarks_file_path().unwrap())
+            .expect("Error creating bookmarks file");
+
+        file.flush()
+            .expect("Error closing bookmarks file")
+    }
+
+    let file_content = fs::read_to_string(&get_bookmarks_file_path().unwrap())
+        .expect("Error reading bookmarks file");
 
     if file_content.is_empty() {
-        file_content = "[]".to_owned()
-    }
+        let file = BookmarksFile {
+            bookmarks: vec![],
+            groups: vec![],
+        };
 
-    return serde_yaml::from_str(&file_content).expect("Error getting bookmarks from yaml");
+        let content = serde_yaml::to_string(&file).unwrap();
+
+        fs::write(&get_bookmarks_file_path().unwrap(), content)
+            .expect("Error writing bookmarks file");
+    }
 }
 
-fn main() {
-    let parameters = get_parameters().unwrap();
-    let function = parameters.to_owned().function;
-    let id = "com-lighttigerxiv-bookmarks";
+fn get_bookmarks_file() -> Option<BookmarksFile> {
+    let bookmarks_file = get_bookmarks_file_path()
+        .expect("Error getting bookmarks file");
 
-    // Init bookmarks
-    if !&get_bookmarks_file_path().exists() {
-        fs::create_dir_all(&get_bookmarks_folder_path()).expect("Error creating folder");
-        File::create(&get_bookmarks_file_path()).expect("Error creating bookmarks file");
+    let file_content = fs::read_to_string(&bookmarks_file)
+        .expect("Error reading bookmarks file");
+
+    return Some(serde_yaml::from_str(&file_content).unwrap());
+}
+
+fn get_bookmarks_select_options()-> Vec<SelectOption>{
+    let bookmarks_file = get_bookmarks_file().unwrap();
+    let mut bookmarks_options: Vec<SelectOption> = Vec::new();
+
+    let mut bookmarks = bookmarks_file.to_owned().bookmarks;
+    bookmarks.sort_by_key(|g| g.name.to_owned());
+
+    for bookmark in bookmarks{
+
+        bookmarks_options.push(SelectOption::new(
+            &bookmark.id.to_string(),
+            &bookmark.name,
+        ))
     }
 
+    return bookmarks_options;
+}
+
+fn get_bookmarks_select_options_default_value()-> String{
+    let bookmarks_file = get_bookmarks_file().unwrap();
+
+    let mut bookmarks = bookmarks_file.to_owned().bookmarks;
+    bookmarks.sort_by_key(|g| g.name.to_owned());
+
+    return bookmarks[0].id.to_string()
+}
+
+fn get_groups_select_options()-> Vec<SelectOption>{
+    let bookmarks_file = get_bookmarks_file().unwrap();
+    let mut groups_options: Vec<SelectOption> = Vec::new();
+
+    let mut groups = bookmarks_file.to_owned().groups;
+    groups.sort_by_key(|g| g.name.to_owned());
+
+    for group in groups{
+
+        groups_options.push(SelectOption::new(
+            &group.id.to_string(),
+            &group.name,
+        ))
+    }
+
+    return groups_options;
+}
+
+fn get_groups_select_options_default_value()-> String{
+    let bookmarks_file = get_bookmarks_file().unwrap();
+
+    let mut groups = bookmarks_file.to_owned().groups;
+    groups.sort_by_key(|g| g.name.to_owned());
+
+    return groups[0].id.to_string()
+}
+
+
+
+fn main() {
+    init_bookmarks();
+
+    let parameters = get_parameters().unwrap();
+    let function = parameters.function;
+    let id = "com-lighttigerxiv-bookmarks";
+
+    let bookmarks_file = get_bookmarks_file().unwrap();
+
     match function {
-        GetResults => {
-            let search_text = parameters.search_text.unwrap();
-            let splitted_search_text: Vec<&str> = search_text.split_whitespace().collect();
-            let matcher = SkimMatcherV2::default();
+        Function::GetResults => {
+            let bookmarks = bookmarks_file.to_owned().bookmarks;
+            let groups = bookmarks_file.to_owned().groups;
+
+            let fuzzy_matcher = SkimMatcherV2::default();
+
             let mut results: Vec<SimpleKLResult> = Vec::new();
+            let search_text = parameters.search_text.unwrap();
+            let splitted_search_text: Vec<&str> = search_text.split(" ").collect();
+            let mut next_text = String::from("");
 
-            let contains_add_word = splitted_search_text.iter().any(|e| e == &"add");
-            let contains_as_word = splitted_search_text.iter().any(|e| e == &"as");
-            let contains_remove_word = splitted_search_text.iter().any(|e| e == &"remove");
-            let contains_edit_word = splitted_search_text.iter().any(|e| e == &"edit");
-
-            if search_text.trim().is_empty() {
-                emit_results(results);
-                exit(0);
+            if search_text.is_empty() {
+                emit_results(results.to_owned());
             }
 
-            let add_index = splitted_search_text
-                .iter()
-                .position(|e| e == &"add")
-                .unwrap_or(9999);
+            let mut has_add_keyword = false;
+            let mut has_remove_keyword = false;
+            let mut has_edit_keyword = false;
 
-            let as_index = splitted_search_text
-                .iter()
-                .position(|e| e == &"as")
-                .unwrap_or(9999);
+            for (index, text) in splitted_search_text.iter().enumerate() {
+                if index == 0 {
+                    has_add_keyword = text.trim().to_lowercase() == "add";
+                    has_remove_keyword = text.trim().to_lowercase() == "remove";
+                    has_edit_keyword = text.trim().to_lowercase() == "edit";
+                } else {
+                    next_text = next_text + " " + text;
+                }
+            }
 
-            let remove_index = splitted_search_text
-                .iter()
-                .position(|e| e == &"remove")
-                .unwrap_or(9999);
-
-            if contains_add_word && !contains_as_word {
-                let url = match splitted_search_text.len() > add_index {
-                    true => splitted_search_text[add_index + 1].to_string(),
-                    false => "".to_string(),
-                };
-
-                results.push(SimpleKLResult::IconWithTitleAndDescription(
-                    IconWithTitleAndDescriptionResult::new_with_color(
-                        get_extension_icon(id, "@src/images/plus.svg").unwrap(),
-                        "accent",
-                        "Name:",
-                        &format!("Url: {}", url),
-                        ResultAction::DoNothingAction(DoNothingAction {}),
+            if has_add_keyword {
+                results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                    get_extension_icon(id, "@src/images/plus.svg").unwrap(),
+                    "accent",
+                    "Add bookmark",
+                    ResultAction::DialogAction(DialogAction::new()
+                        .extension_id(id)
+                        .title("Add Bookmark")
+                        .action("add_bookmark")
+                        .button_text("Add bookmark")
+                        .fields(vec![
+                            DialogField::Input(InputField::new()
+                                .id("name")
+                                .title("Name")
+                                .description("The bookmark name")
+                                .placeholder("Name")
+                                .to_owned()
+                            ),
+                            DialogField::Input(InputField::new()
+                                .id("url")
+                                .title("Url")
+                                .description("The bookmark url")
+                                .placeholder("Url")
+                                .to_owned()
+                            ),
+                        ])
+                        .to_owned()
                     ),
-                ));
+                )));
 
-                emit_results(results);
-                exit(0);
-            } else if contains_add_word && contains_as_word {
-                let url = match splitted_search_text.len() > add_index {
-                    true => splitted_search_text[add_index + 1].to_string(),
-                    false => "".to_string(),
-                };
+                results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                    get_extension_icon(id, "@src/images/plus.svg").unwrap(),
+                    "accent",
+                    "Add group",
+                    ResultAction::DialogAction(DialogAction::new()
+                        .extension_id(id)
+                        .title("Add Group")
+                        .action("add_group")
+                        .button_text("Add group")
+                        .fields(vec![
+                            DialogField::Input(InputField::new()
+                                .id("name")
+                                .title("Name")
+                                .description("The group name")
+                                .placeholder("Name")
+                                .to_owned()
+                            ),
+                        ])
+                        .to_owned()
+                    ),
+                )));
 
-                let name = match splitted_search_text.len() > add_index {
-                    true => {
-                        let mut name = "".to_string();
 
-                        for (index, word) in splitted_search_text.iter().enumerate() {
-                            if index > as_index {
-                                name = name + word.to_owned() + " ";
-                            }
-                        }
-                        name = name.trim_end().to_string();
-                        name
-                    }
-                    false => "".to_string(),
-                };
+                if groups.len() > 0 {
 
-                results.push(SimpleKLResult::IconWithTitleAndDescription(
-                    IconWithTitleAndDescriptionResult::new_with_color(
+                    let groups_options = get_groups_select_options();
+                    let groups_default_value = get_groups_select_options_default_value();
+                    let bookmarks_options = get_bookmarks_select_options();
+                    let bookmarks_default_value = get_bookmarks_select_options_default_value();
+
+                    results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/plus.svg").unwrap(),
                         "accent",
-                        &format!("Name: {}", name),
-                        &format!("Url: {}", url),
+                        "Add bookmark to group",
+                        ResultAction::DialogAction(DialogAction::new()
+                            .extension_id(id)
+                            .title("Add Bookmark To Group")
+                            .action("add_bookmark_to_group")
+                            .button_text("Add bookmark")
+                            .fields(vec![
+                                DialogField::Select(SelectField::new(
+                                    "group",
+                                    &groups_default_value,
+                                    "Group",
+                                    "Select the group to add a bookmark",
+                                    groups_options)
+                                ),
+                                DialogField::Select(SelectField::new(
+                                    "bookmark",
+                                    &bookmarks_default_value,
+                                    "Bookmark",
+                                    "Select the bookmark to add to a group",
+                                    bookmarks_options)
+                                ),
+                            ])
+                            .to_owned()
+                        ),
+                    )));
+                }
+
+
+                emit_results(results.to_owned());
+            }
+
+
+            if has_remove_keyword {
+
+                if !&bookmarks.is_empty() {
+                    let bookmarks_options = get_bookmarks_select_options();
+                    let bookmarks_default_value = get_bookmarks_select_options_default_value();
+
+                    results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                        get_extension_icon(id, "@src/images/trash.svg").unwrap(),
+                        "accent",
+                        "Remove bookmark",
+                        ResultAction::DialogAction(DialogAction::new()
+                            .extension_id(id)
+                            .title("Remove Bookmark")
+                            .action("remove_bookmark")
+                            .button_text("Remove bookmark")
+                            .fields(vec![
+                                DialogField::Select(SelectField::new(
+                                    "bookmark",
+                                    &bookmarks_default_value,
+                                    "Remove Bookmark",
+                                    "Select the bookmark to remove",
+                                    bookmarks_options)
+                                )
+                            ])
+                            .to_owned()
+                        ),
+                    )));
+                }
+
+                if !&groups.is_empty(){
+                    let groups_options = get_groups_select_options();
+                    let groups_default_value = get_groups_select_options_default_value();
+
+                    results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                        get_extension_icon(id, "@src/images/trash.svg").unwrap(),
+                        "accent",
+                        "Remove group",
+                        ResultAction::DialogAction(DialogAction::new()
+                            .extension_id(id)
+                            .title("Remove Group")
+                            .action("remove_group")
+                            .button_text("Remove group")
+                            .fields(vec![
+                                DialogField::Select(SelectField::new(
+                                    "group",
+                                    &groups_default_value,
+                                    "Remove Group",
+                                    "Select the group to remove",
+                                    groups_options)
+                                )
+                            ])
+                            .to_owned()
+                        ),
+                    )));
+                }
+
+                emit_results(results.to_owned());
+            }
+
+            if has_edit_keyword{
+
+                results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                    get_extension_icon(id, "@src/images/pencil.svg").unwrap(),
+                    "accent",
+                    "Edit bookmarks",
+                    ResultAction::ExtensionAction(ExtensionAction::new(id, "edit"))
+                )));
+
+                emit_results(results.to_owned());
+            }
+
+            for group in groups {
+                if fuzzy_matcher.fuzzy_match(&group.name, &next_text).is_some() {
+                    results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                        get_extension_icon(id, "@src/images/folder.svg").unwrap(),
+                        "accent",
+                        &format!("Open {} group", group.name),
                         ResultAction::ExtensionAction(ExtensionAction::new_with_args(
                             id,
-                            "add",
-                            vec![url, name],
+                            "open_group",
+                            vec![group.id.to_string()],
                         )),
-                    ),
-                ));
-
-                emit_results(results);
-                exit(0);
-            } else if contains_remove_word {
-                let search_text = match splitted_search_text.len() > remove_index {
-                    true => {
-                        let mut search_text = "".to_string();
-
-                        for (index, word) in splitted_search_text.iter().enumerate() {
-                            if index > remove_index {
-                                search_text = search_text + word.to_owned() + " ";
-                            }
-                        }
-                        search_text = search_text.trim_end().to_string();
-                        search_text
-                    }
-                    false => "".to_string(),
-                };
-
-                if search_text.trim().is_empty() {
-                    emit_results(results);
-                    exit(0);
+                    )))
                 }
-
-                let bookmarks = get_bookmarks();
-
-                for bookmark in bookmarks {
-                    if bookmark.url.contains(&search_text)
-                        || matcher.fuzzy_match(&bookmark.name, &search_text).is_some()
-                    {
-                        results.push(SimpleKLResult::IconWithTitleAndDescription(
-                            IconWithTitleAndDescriptionResult::new_with_color(
-                                get_extension_icon(id, "@src/images/trash.svg").unwrap(),
-                                "accent",
-                                &format!("Remove {}", bookmark.name),
-                                &bookmark.url,
-                                ResultAction::ExtensionAction(ExtensionAction::new_with_args(
-                                    id,
-                                    "remove",
-                                    vec![bookmark.url.to_owned()],
-                                )),
-                            ),
-                        ));
-                    }
-                }
-
-                emit_results(results);
-                exit(0);
-            } else if contains_edit_word {
-                results.push(SimpleKLResult::IconWithText(
-                    IconWithTextResult::new_with_color(
-                        get_extension_icon(id, "@src/images/pencil.svg").unwrap(),
-                        "accent",
-                        "Edit bookmarks",
-                        ResultAction::ExtensionAction(ExtensionAction::new(
-                            id,
-                            "edit",
-                        )),
-                    ),
-                ));
-
-                emit_results(results);
-                exit(0);
             }
-
-            if search_text.trim().is_empty() {
-                emit_results(results);
-                exit(0);
-            }
-
-            let bookmarks = get_bookmarks();
 
             for bookmark in bookmarks {
-                let matches_name = matcher.fuzzy_match(&bookmark.name, &search_text).is_some();
-                let matches_url = matcher.fuzzy_match(&bookmark.url, &search_text).is_some();
+
+                let matches_name = fuzzy_matcher.fuzzy_match(&bookmark.name, &search_text).is_some();
+                let matches_url = fuzzy_matcher.fuzzy_match(&bookmark.url, &search_text).is_some();
 
                 if matches_name || matches_url {
-                    results.push(SimpleKLResult::IconWithTitleAndDescription(
-                        IconWithTitleAndDescriptionResult::new_with_color(
-                            get_extension_icon(
-                                id,
-                                "@src/images/bookmark.svg",
-                            ).unwrap(),
-                            "accent",
-                            &bookmark.name,
-                            &bookmark.url,
-                            ResultAction::OpenInBrowser(OpenInBrowser { url: bookmark.url.to_owned() }),
-                        ),
-                    ))
+                    results.push(SimpleKLResult::IconWithTitleAndDescription(IconWithTitleAndDescriptionResult::new_with_color(
+                        get_extension_icon(id, "@src/images/bookmark.svg").unwrap(),
+                        "accent",
+                        &format!("Open {}", bookmark.name),
+                        &bookmark.url,
+                        ResultAction::OpenInBrowser(OpenInBrowser::new(&bookmark.url)),
+                    )))
                 }
             }
 
-            emit_results(results);
-            exit(0);
+            emit_results(results.to_owned());
         }
-        RunAction => match parameters.action.unwrap().as_str() {
-            "add" => {
-                let args = parameters.custom_args.unwrap();
-                let url = args[0].to_owned();
-                let name = args[1].to_owned();
-                let mut bookmarks = get_bookmarks();
+        Function::RunAction => {
+            let action = parameters.action.unwrap();
 
-                bookmarks.push(Bookmark { name, url });
+            if action == "add_bookmark" {
+                let dialog_results = get_dialog_results().unwrap();
+                let bookmark_name = &dialog_results.iter().find(|b| b.field_id == "name").unwrap().value;
+                let bookmark_url = &dialog_results.iter().find(|b| b.field_id == "url").unwrap().value;
 
-                let bookmarks_yaml = serde_yaml::to_string(&bookmarks)
-                    .expect("Error converting bookmarks to a yaml");
 
-                let mut bookmarks_file =
-                    File::create(&get_bookmarks_file_path()).expect("Error opening bookmarks file");
+                let mut bookmarks: Vec<Bookmark> = bookmarks_file.to_owned().bookmarks;
+                let groups: Vec<BookmarkGroup> = bookmarks_file.to_owned().groups;
 
-                bookmarks_file
-                    .write_all(bookmarks_yaml.as_bytes())
-                    .expect("Error writing bookmarks yaml");
+                bookmarks.sort_by_key(|b| b.id);
 
-                bookmarks_file
-                    .flush()
-                    .expect("Error closing bookmarks file");
+                if bookmarks.is_empty() {
+                    bookmarks.push(Bookmark::new(0, bookmark_name, bookmark_url));
+                } else {
+                    let last_id = bookmarks[bookmarks.len() - 1].id;
 
-                exit(0);
+                    bookmarks.push(Bookmark::new(last_id + 1, bookmark_name, bookmark_url));
+                }
+
+                let new_bookmarks_file = BookmarksFile {
+                    bookmarks,
+                    groups,
+                };
+
+                let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), new_bookmarks_file_yaml)
+                    .expect("Error writing bookmarks file");
+
+                notify("Add Bookmark", &format!("{} added successfully", bookmark_name));
             }
-            "remove" => {
-                let bookmarks = get_bookmarks();
-                let args = parameters.custom_args.unwrap();
-                let url = args[0].to_owned();
 
-                let new_bookmarks: Vec<&Bookmark> =
-                    bookmarks.iter().filter(|e| e.url != url).collect();
-                let new_bookmarks_yaml = serde_yaml::to_string(&new_bookmarks)
-                    .expect("Error converting bookmarks to yaml");
+            if action == "add_group" {
+                let dialog_results = get_dialog_results().unwrap();
+                let group_name = &dialog_results.iter().find(|b| b.field_id == "name").unwrap().value;
 
-                let mut bookmarks_file =
-                    File::create(&get_bookmarks_file_path()).expect("Error opening bookmarks file");
-                bookmarks_file
-                    .write_all(&new_bookmarks_yaml.as_bytes())
-                    .expect("Error writing in bookmarks file");
-                bookmarks_file
-                    .flush()
-                    .expect("Error closing bookmarks file");
+                let bookmarks = bookmarks_file.to_owned().bookmarks;
+                let mut groups: Vec<BookmarkGroup> = bookmarks_file.to_owned().groups;
+
+                groups.sort_by_key(|b| b.id);
+
+                if groups.is_empty() {
+                    groups.push(BookmarkGroup::new(0, group_name, vec![]));
+                } else {
+                    let last_id = groups[groups.len() - 1].id;
+
+                    groups.push(BookmarkGroup::new(last_id + 1, group_name, vec![]));
+                }
+
+                let new_bookmarks_file = BookmarksFile {
+                    bookmarks,
+                    groups,
+                };
+
+                let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), new_bookmarks_file_yaml)
+                    .expect("Error writing bookmarks file");
+
+                notify("Add Group", &format!("{} added successfully", group_name));
             }
-            "edit" => {
-                open::that(&get_bookmarks_file_path()).expect("Error opening bookmarks file");
+
+            if action == "add_bookmark_to_group" {
+                let group_id_string = get_dialog_result("group").unwrap();
+                let group_id: usize = group_id_string.parse().unwrap();
+                let bookmark_id_string = get_dialog_result("bookmark").unwrap();
+                let bookmark_id: usize = bookmark_id_string.parse().unwrap();
+
+                let mut new_bookmarks_file = bookmarks_file.to_owned();
+
+                let group_index = bookmarks_file.to_owned().groups.iter().position(|g| g.id == group_id).unwrap();
+                let mut new_group_bookmarks = bookmarks_file.to_owned().groups[group_index].bookmarks.to_owned();
+
+                new_group_bookmarks.push(bookmark_id);
+
+                new_bookmarks_file.groups[group_index].bookmarks = new_group_bookmarks;
+
+                let bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), bookmarks_file_yaml)
+                    .expect("Error writing bookmarks file");
+
+                notify("Add bookmark to group", "Successfully added bookmark to group");
             }
-            _ => {}
-        },
+
+            if action == "remove_bookmark" {
+                let bookmark_id_string = get_dialog_result("bookmark").unwrap();
+                let bookmark_id: usize = bookmark_id_string.parse().unwrap();
+
+                let mut new_bookmarks = bookmarks_file.to_owned().bookmarks;
+                let mut new_groups = bookmarks_file.to_owned().groups;
+
+                new_bookmarks = new_bookmarks.iter().map(|b| b.to_owned())
+                    .filter(|b| b.id != bookmark_id).collect();
+
+                for (index, group) in bookmarks_file.to_owned().groups.iter().enumerate() {
+                    if group.bookmarks.iter().any(|b| b == &bookmark_id) {
+                        new_groups[index].bookmarks = group.bookmarks.iter().map(|b| b.to_owned())
+                            .filter(|b| b != &bookmark_id).collect();
+                    }
+                }
+
+                let new_bookmarks_file = BookmarksFile{
+                    bookmarks: new_bookmarks,
+                    groups: new_groups
+                };
+
+                let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), new_bookmarks_file_yaml)
+                    .expect("Error writing bookmarks file");
+
+                notify("Remove Bookmark", "Removed bookmark successfully");
+            }
+
+            if action == "remove_group"{
+                let group_id_string = get_dialog_result("group").unwrap();
+                let group_id: usize = group_id_string.parse().unwrap();
+
+                let new_groups: Vec<BookmarkGroup> = bookmarks_file.to_owned().groups
+                    .iter().map(|g|g.to_owned()).filter(|g|g.id != group_id).collect();
+
+                let new_bookmarks_file = BookmarksFile{
+                    bookmarks: bookmarks_file.to_owned().bookmarks,
+                    groups: new_groups
+                };
+
+                let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), new_bookmarks_file_yaml).unwrap();
+
+                notify("Remove Group", "Removed group successfully");
+            }
+
+            if action == "open_group" {
+                let custom_args = parameters.custom_args.unwrap();
+                let group_id_string = &custom_args[0];
+                let group_id: usize = group_id_string.parse().unwrap();
+
+                let group = bookmarks_file.to_owned().groups.iter().map(|g| g.to_owned()).find(|g| g.id == group_id).unwrap();
+                let group_bookmarks = &group.bookmarks;
+                let bookmarks = bookmarks_file.to_owned().bookmarks;
+
+                for bookmark_id in group_bookmarks {
+                    let bookmark = &bookmarks.iter().find(|b| b.id == bookmark_id.to_owned()).unwrap();
+                    open::that(&bookmark.url).unwrap();
+                    sleep(Duration::from_millis(1000));
+                }
+            }
+
+            if action == "edit"{
+                open::that(get_bookmarks_file_path().unwrap()).unwrap();
+            }
+        }
     }
 }
