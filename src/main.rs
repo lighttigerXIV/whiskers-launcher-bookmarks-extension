@@ -336,7 +336,7 @@ fn main() {
             }
 
             for group in groups {
-                if fuzzy_matcher.fuzzy_match(&group.name, &next_text).is_some() {
+                if fuzzy_matcher.fuzzy_match(&group.name, &&search_text).is_some() {
                     results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/folder.svg").unwrap(),
                         "accent",
