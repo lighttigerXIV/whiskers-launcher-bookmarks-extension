@@ -340,7 +340,7 @@ fn main() {
                     results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/folder.svg").unwrap(),
                         "accent",
-                        &format!("Open {} group", group.name),
+                        &format!("{} Group", group.name),
                         ResultAction::ExtensionAction(ExtensionAction::new_with_args(
                             id,
                             "open_group",
@@ -359,7 +359,7 @@ fn main() {
                     results.push(SimpleKLResult::IconWithTitleAndDescription(IconWithTitleAndDescriptionResult::new_with_color(
                         get_extension_icon(id, "@src/images/bookmark.svg").unwrap(),
                         "accent",
-                        &format!("Open {}", bookmark.name),
+                        &bookmark.name,
                         &bookmark.url,
                         ResultAction::OpenInBrowser(OpenInBrowser::new(&bookmark.url)),
                     )))
