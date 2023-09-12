@@ -6,8 +6,9 @@ use std::thread::{sleep};
 use std::time::Duration;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
-use simple_kl_rs::actions::{DialogAction, DialogField, ExtensionAction, get_dialog_result, get_dialog_results, InputField, notify, OpenInBrowser, ResultAction, SelectField, SelectOption};
+use simple_kl_rs::actions::{CheckGroup, CheckOption, DialogAction, DialogField, ExtensionAction, get_check_group_results, get_dialog_result, get_dialog_results, InputField, OpenInBrowser, ResultAction, SelectField, SelectOption};
 use simple_kl_rs::extensions::{emit_results, Function, get_parameters};
+use simple_kl_rs::others::notify;
 use simple_kl_rs::paths::{get_extension_icon, get_home_path};
 use simple_kl_rs::results::{IconWithTextResult, IconWithTitleAndDescriptionResult, SimpleKLResult};
 use crate::bookmarks::{Bookmark, BookmarkGroup, BookmarksFile};
@@ -74,15 +75,14 @@ fn get_bookmarks_file() -> Option<BookmarksFile> {
     return Some(serde_yaml::from_str(&file_content).unwrap());
 }
 
-fn get_bookmarks_select_options()-> Vec<SelectOption>{
+fn get_bookmarks_select_options() -> Vec<SelectOption> {
     let bookmarks_file = get_bookmarks_file().unwrap();
     let mut bookmarks_options: Vec<SelectOption> = Vec::new();
 
     let mut bookmarks = bookmarks_file.to_owned().bookmarks;
     bookmarks.sort_by_key(|g| g.name.to_owned());
 
-    for bookmark in bookmarks{
-
+    for bookmark in bookmarks {
         bookmarks_options.push(SelectOption::new(
             &bookmark.id.to_string(),
             &bookmark.name,
@@ -92,24 +92,23 @@ fn get_bookmarks_select_options()-> Vec<SelectOption>{
     return bookmarks_options;
 }
 
-fn get_bookmarks_select_options_default_value()-> String{
+fn get_bookmarks_select_options_default_value() -> String {
     let bookmarks_file = get_bookmarks_file().unwrap();
 
     let mut bookmarks = bookmarks_file.to_owned().bookmarks;
     bookmarks.sort_by_key(|g| g.name.to_owned());
 
-    return bookmarks[0].id.to_string()
+    return bookmarks[0].id.to_string();
 }
 
-fn get_groups_select_options()-> Vec<SelectOption>{
+fn get_groups_select_options() -> Vec<SelectOption> {
     let bookmarks_file = get_bookmarks_file().unwrap();
     let mut groups_options: Vec<SelectOption> = Vec::new();
 
     let mut groups = bookmarks_file.to_owned().groups;
     groups.sort_by_key(|g| g.name.to_owned());
 
-    for group in groups{
-
+    for group in groups {
         groups_options.push(SelectOption::new(
             &group.id.to_string(),
             &group.name,
@@ -119,15 +118,14 @@ fn get_groups_select_options()-> Vec<SelectOption>{
     return groups_options;
 }
 
-fn get_groups_select_options_default_value()-> String{
+fn get_groups_select_options_default_value() -> String {
     let bookmarks_file = get_bookmarks_file().unwrap();
 
     let mut groups = bookmarks_file.to_owned().groups;
     groups.sort_by_key(|g| g.name.to_owned());
 
-    return groups[0].id.to_string()
+    return groups[0].id.to_string();
 }
-
 
 
 fn main() {
@@ -164,21 +162,26 @@ fn main() {
                     has_add_keyword = text.trim().to_lowercase() == "add";
                     has_remove_keyword = text.trim().to_lowercase() == "remove";
                     has_edit_keyword = text.trim().to_lowercase() == "edit";
+                } else if index == 0 && !has_add_keyword && !has_remove_keyword && !has_edit_keyword {
+                    next_text = next_text + " " + text;
                 } else {
                     next_text = next_text + " " + text;
                 }
             }
 
+            next_text = next_text.trim().to_owned();
+
+
             if has_add_keyword {
                 results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                     get_extension_icon(id, "@src/images/plus.svg").unwrap(),
-                    "accent",
-                    "Add bookmark",
-                    ResultAction::DialogAction(DialogAction::new()
-                        .extension_id(id)
-                        .title("Add Bookmark")
-                        .action("add_bookmark")
-                        .button_text("Add bookmark")
+                    "Add Bookmark",
+                    ResultAction::DialogAction(DialogAction::new(
+                        id,
+                        "Add Bookmark",
+                        "add_bookmark",
+                    )
+                        .button_text("Add Bookmark")
                         .fields(vec![
                             DialogField::Input(InputField::new()
                                 .id("name")
@@ -201,13 +204,13 @@ fn main() {
 
                 results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                     get_extension_icon(id, "@src/images/plus.svg").unwrap(),
-                    "accent",
-                    "Add group",
-                    ResultAction::DialogAction(DialogAction::new()
-                        .extension_id(id)
-                        .title("Add Group")
-                        .action("add_group")
-                        .button_text("Add group")
+                    "Add Group",
+                    ResultAction::DialogAction(DialogAction::new(
+                        id,
+                        "Add Group",
+                        "add_group",
+                    )
+                        .button_text("Add Group")
                         .fields(vec![
                             DialogField::Input(InputField::new()
                                 .id("name")
@@ -221,64 +224,24 @@ fn main() {
                     ),
                 )));
 
-
-                if groups.len() > 0 {
-
-                    let groups_options = get_groups_select_options();
-                    let groups_default_value = get_groups_select_options_default_value();
-                    let bookmarks_options = get_bookmarks_select_options();
-                    let bookmarks_default_value = get_bookmarks_select_options_default_value();
-
-                    results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
-                        get_extension_icon(id, "@src/images/plus.svg").unwrap(),
-                        "accent",
-                        "Add bookmark to group",
-                        ResultAction::DialogAction(DialogAction::new()
-                            .extension_id(id)
-                            .title("Add Bookmark To Group")
-                            .action("add_bookmark_to_group")
-                            .button_text("Add bookmark")
-                            .fields(vec![
-                                DialogField::Select(SelectField::new(
-                                    "group",
-                                    &groups_default_value,
-                                    "Group",
-                                    "Select the group to add a bookmark",
-                                    groups_options)
-                                ),
-                                DialogField::Select(SelectField::new(
-                                    "bookmark",
-                                    &bookmarks_default_value,
-                                    "Bookmark",
-                                    "Select the bookmark to add to a group",
-                                    bookmarks_options)
-                                ),
-                            ])
-                            .to_owned()
-                        ),
-                    )));
-                }
-
-
                 emit_results(results.to_owned());
             }
 
 
             if has_remove_keyword {
-
                 if !&bookmarks.is_empty() {
                     let bookmarks_options = get_bookmarks_select_options();
                     let bookmarks_default_value = get_bookmarks_select_options_default_value();
 
                     results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/trash.svg").unwrap(),
-                        "accent",
-                        "Remove bookmark",
-                        ResultAction::DialogAction(DialogAction::new()
-                            .extension_id(id)
-                            .title("Remove Bookmark")
-                            .action("remove_bookmark")
-                            .button_text("Remove bookmark")
+                        "Remove Bookmark",
+                        ResultAction::DialogAction(DialogAction::new(
+                            id,
+                            "Remove Bookmark",
+                            "remove_bookmark",
+                        )
+                            .button_text("Remove Bookmark")
                             .fields(vec![
                                 DialogField::Select(SelectField::new(
                                     "bookmark",
@@ -293,19 +256,19 @@ fn main() {
                     )));
                 }
 
-                if !&groups.is_empty(){
+                if !&groups.is_empty() {
                     let groups_options = get_groups_select_options();
                     let groups_default_value = get_groups_select_options_default_value();
 
                     results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/trash.svg").unwrap(),
-                        "accent",
-                        "Remove group",
-                        ResultAction::DialogAction(DialogAction::new()
-                            .extension_id(id)
-                            .title("Remove Group")
-                            .action("remove_group")
-                            .button_text("Remove group")
+                        "Remove Group",
+                        ResultAction::DialogAction(DialogAction::new(
+                            id,
+                            "Remove Group",
+                            "remove_group",
+                        )
+                            .button_text("Remove Group")
                             .fields(vec![
                                 DialogField::Select(SelectField::new(
                                     "group",
@@ -323,23 +286,61 @@ fn main() {
                 emit_results(results.to_owned());
             }
 
-            if has_edit_keyword{
 
-                results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
-                    get_extension_icon(id, "@src/images/pencil.svg").unwrap(),
-                    "accent",
-                    "Edit bookmarks",
-                    ResultAction::ExtensionAction(ExtensionAction::new(id, "edit"))
-                )));
+            if has_edit_keyword {
+                if !groups.is_empty() && !next_text.is_empty() {
+                    let mut sorted_bookmarks = bookmarks.to_owned();
+                    sorted_bookmarks.sort_by_key(|b| b.name.to_owned());
+
+                    for group in groups.to_owned() {
+                        if fuzzy_matcher.fuzzy_match(&group.name, &next_text).is_some() {
+                            let mut fields: Vec<DialogField> = vec![];
+                            let mut check_options: Vec<CheckOption> = vec![];
+
+                            for bookmark in sorted_bookmarks.to_owned() {
+                                check_options.push(CheckOption::new(
+                                    &bookmark.id.to_string(),
+                                    &bookmark.name,
+                                )
+                                    .checked(group.bookmarks.contains(&bookmark.id))
+                                    .description("This is a description").to_owned());
+                            }
+
+                            fields.push(DialogField::Input(InputField::new()
+                                .id("name")
+                                .title("Name")
+                                .description("The group name")
+                                .value(&group.name)
+                                .to_owned()
+                            ));
+
+                            fields.push(DialogField::CheckGroup(CheckGroup::new(
+                                &format!("group-{}", group.id),
+                                "Bookmarks",
+                            ).options(check_options).to_owned()));
+
+
+                            results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
+                                get_extension_icon(id, "@src/images/pencil.svg").unwrap(),
+                                &format!("Edit {} group", &group.name),
+                                ResultAction::DialogAction(DialogAction::new(
+                                    id,
+                                    &format!("Edit {}", &group.name),
+                                    "edit_group",
+                                ).fields(fields).to_owned()),
+                            )))
+                        }
+                    }
+                }
 
                 emit_results(results.to_owned());
             }
 
+
             for group in groups {
-                if fuzzy_matcher.fuzzy_match(&group.name, &&search_text).is_some() {
+                if fuzzy_matcher.fuzzy_match(&group.name, &search_text).is_some() {
                     results.push(SimpleKLResult::IconWithText(IconWithTextResult::new_with_color(
                         get_extension_icon(id, "@src/images/folder.svg").unwrap(),
-                        "accent",
                         &format!("{} Group", group.name),
                         ResultAction::ExtensionAction(ExtensionAction::new_with_args(
                             id,
@@ -351,7 +352,6 @@ fn main() {
             }
 
             for bookmark in bookmarks {
-
                 let matches_name = fuzzy_matcher.fuzzy_match(&bookmark.name, &search_text).is_some();
                 let matches_url = fuzzy_matcher.fuzzy_match(&bookmark.url, &search_text).is_some();
 
@@ -433,32 +433,9 @@ fn main() {
                 notify("Add Group", &format!("{} added successfully", group_name));
             }
 
-            if action == "add_bookmark_to_group" {
-                let group_id_string = get_dialog_result("group").unwrap();
-                let group_id: usize = group_id_string.parse().unwrap();
-                let bookmark_id_string = get_dialog_result("bookmark").unwrap();
-                let bookmark_id: usize = bookmark_id_string.parse().unwrap();
-
-                let mut new_bookmarks_file = bookmarks_file.to_owned();
-
-                let group_index = bookmarks_file.to_owned().groups.iter().position(|g| g.id == group_id).unwrap();
-                let mut new_group_bookmarks = bookmarks_file.to_owned().groups[group_index].bookmarks.to_owned();
-
-                new_group_bookmarks.push(bookmark_id);
-
-                new_bookmarks_file.groups[group_index].bookmarks = new_group_bookmarks;
-
-                let bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
-
-                fs::write(get_bookmarks_file_path().unwrap(), bookmarks_file_yaml)
-                    .expect("Error writing bookmarks file");
-
-                notify("Add bookmark to group", "Successfully added bookmark to group");
-            }
-
             if action == "remove_bookmark" {
                 let bookmark_id_string = get_dialog_result("bookmark").unwrap();
-                let bookmark_id: usize = bookmark_id_string.parse().unwrap();
+                let bookmark_id: usize = bookmark_id_string.value.parse().unwrap();
 
                 let mut new_bookmarks = bookmarks_file.to_owned().bookmarks;
                 let mut new_groups = bookmarks_file.to_owned().groups;
@@ -473,9 +450,9 @@ fn main() {
                     }
                 }
 
-                let new_bookmarks_file = BookmarksFile{
+                let new_bookmarks_file = BookmarksFile {
                     bookmarks: new_bookmarks,
-                    groups: new_groups
+                    groups: new_groups,
                 };
 
                 let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
@@ -486,16 +463,16 @@ fn main() {
                 notify("Remove Bookmark", "Removed bookmark successfully");
             }
 
-            if action == "remove_group"{
+            if action == "remove_group" {
                 let group_id_string = get_dialog_result("group").unwrap();
-                let group_id: usize = group_id_string.parse().unwrap();
+                let group_id: usize = group_id_string.value.parse().unwrap();
 
                 let new_groups: Vec<BookmarkGroup> = bookmarks_file.to_owned().groups
-                    .iter().map(|g|g.to_owned()).filter(|g|g.id != group_id).collect();
+                    .iter().map(|g| g.to_owned()).filter(|g| g.id != group_id).collect();
 
-                let new_bookmarks_file = BookmarksFile{
+                let new_bookmarks_file = BookmarksFile {
                     bookmarks: bookmarks_file.to_owned().bookmarks,
-                    groups: new_groups
+                    groups: new_groups,
                 };
 
                 let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
@@ -521,7 +498,45 @@ fn main() {
                 }
             }
 
-            if action == "edit"{
+            if action == "edit_group" {
+                let dialog_results = get_dialog_results().unwrap();
+                let new_name = get_dialog_result("name").unwrap().value;
+                let field_id = dialog_results[1].to_owned().field_id;
+                let group_id: usize = field_id.replace("group-", "").parse().unwrap();
+
+                let check_results = get_check_group_results(&field_id).unwrap();
+                let mut selected_bookmarks: Vec<usize> = vec![];
+
+                for result in check_results {
+                    if result.checked {
+                        let id: usize = result.id.parse().unwrap();
+                        selected_bookmarks.push(id);
+                    }
+                }
+
+                let mut new_groups: Vec<BookmarkGroup> = bookmarks_file.to_owned().groups;
+
+                for (index, group) in bookmarks_file.to_owned().groups.iter().enumerate() {
+                    if group.id == group_id {
+                        new_groups[index].bookmarks = selected_bookmarks.to_owned();
+                        new_groups[index].name = new_name.to_owned();
+                    }
+                }
+
+                let new_bookmarks_file = BookmarksFile {
+                    bookmarks: bookmarks_file.to_owned().bookmarks,
+                    groups: new_groups,
+                };
+
+                let new_bookmarks_file_yaml = serde_yaml::to_string(&new_bookmarks_file).unwrap();
+
+                fs::write(get_bookmarks_file_path().unwrap(), new_bookmarks_file_yaml)
+                    .expect("Error wrting bookmarks file");
+
+                notify("Edit Group", &format!("Group edited successfully"));
+            }
+
+            if action == "edit" {
                 open::that(get_bookmarks_file_path().unwrap()).unwrap();
             }
         }
