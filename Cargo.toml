@@ -2,13 +2,14 @@
 name = "com-lighttigerxiv-bookmarks"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+
+#Ignore the following 2 lines. It's just for local development
+simple_kl_rs = {path = "/home/lighttigerxiv/Development/Crates/simple-kl-rs"}
+#simple_kl_rs = {path = "C:\\Users\\lighttigerxiv\\Documents\\Development\\Simple-Keyboard-Launcher\\simple-kl-rs"}
+
+
 #simple_kl_rs ={ git = "https://github.com/lighttigerXIV/simple-kl-rs"}
-#simple_kl_rs = {path = "/home/lighttigerxiv/Development/Crates/simple-kl-rs"}
-simple_kl_rs = {path = "C:\\Users\\lighttigerxiv\\Documents\\Development\\Simple-Keyboard-Launcher\\simple-kl-rs"}
 serde = "1.0.181"
 serde_yaml = "0.9.25"
 fuzzy-matcher = "0.3.7"
