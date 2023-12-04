@@ -4,7 +4,10 @@
 use crate::bookmarks::{Bookmark, BookmarkGroup, BookmarksFile};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use resources::{get_plus_icon, EXTENSION_ID, get_trash_icon, get_pencil_icon, get_folder_icon, get_bookmark_icon};
+use resources::{
+    get_bookmark_icon, get_folder_icon, get_pencil_icon, get_plus_icon, get_trash_icon,
+    EXTENSION_ID,
+};
 use simple_kl_rs::actions::{
     get_check_group_results, get_dialog_result, get_dialog_results, CheckGroup, CheckOption,
     DialogAction, DialogField, ExtensionAction, InputField, OpenInBrowser, ResultAction,
@@ -16,32 +19,34 @@ use simple_kl_rs::paths::get_home_path;
 use simple_kl_rs::results::{
     IconWithTextResult, IconWithTitleAndDescriptionResult, SimpleKLResult,
 };
-use std::{fs, env};
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::Duration;
+use std::{env, fs};
 
 pub mod bookmarks;
 pub mod resources;
+
+//
 
 fn get_bookmarks_folder_path() -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
         let mut path = get_home_path().expect("Error getting home path");
         path.push(".config/simple-kl-bookmarks");
 
-        return Some(path)
+        return Some(path);
     }
 
     if cfg!(target_os = "windows") {
         let mut path = Path::new(&env::var("APPDATA").unwrap()).to_owned();
         path.push("simple-kl-bookmarks");
 
-        return Some(path)
+        return Some(path);
     }
 
-    return None
+    return None;
 }
 
 fn get_bookmarks_file_path() -> Option<PathBuf> {
@@ -156,29 +161,6 @@ fn main() {
             let mut next_text = String::from("");
 
             if search_text.is_empty() {
-                emit_results(&results);
-            }
-
-            let mut has_add_keyword = false;
-            let mut has_remove_keyword = false;
-            let mut has_edit_keyword = false;
-
-            for (index, text) in splitted_search_text.iter().enumerate() {
-                if index == 0 {
-                    has_add_keyword = text.trim().to_lowercase() == "add";
-                    has_remove_keyword = text.trim().to_lowercase() == "remove";
-                    has_edit_keyword = text.trim().to_lowercase() == "edit";
-                } else if index == 0 && !has_add_keyword && !has_remove_keyword && !has_edit_keyword
-                {
-                    next_text = next_text + " " + text;
-                } else {
-                    next_text = next_text + " " + text;
-                }
-            }
-
-            next_text = next_text.trim().to_owned();
-
-            if has_add_keyword {
                 results.push(SimpleKLResult::IconWithText(
                     IconWithTextResult::new_with_color(
                         get_plus_icon().unwrap(),
@@ -188,20 +170,16 @@ fn main() {
                                 .button_text("Add Bookmark")
                                 .fields(vec![
                                     DialogField::Input(
-                                        InputField::new()
-                                            .id("name")
+                                        InputField::new("name")
                                             .title("Name")
                                             .description("The bookmark name")
-                                            .placeholder("Name")
-                                            .to_owned(),
+                                            .placeholder("Name"),
                                     ),
                                     DialogField::Input(
-                                        InputField::new()
-                                            .id("url")
+                                        InputField::new("url")
                                             .title("Url")
                                             .description("The bookmark url")
-                                            .placeholder("Url")
-                                            .to_owned(),
+                                            .placeholder("Url"),
                                     ),
                                 ])
                                 .to_owned(),
@@ -217,22 +195,16 @@ fn main() {
                             DialogAction::new(EXTENSION_ID, "Add Group", "add_group")
                                 .button_text("Add Group")
                                 .fields(vec![DialogField::Input(
-                                    InputField::new()
-                                        .id("name")
+                                    InputField::new("name")
                                         .title("Name")
                                         .description("The group name")
-                                        .placeholder("Name")
-                                        .to_owned(),
+                                        .placeholder("Name"),
                                 )])
                                 .to_owned(),
                         ),
                     ),
                 ));
 
-                emit_results(&results);
-            }
-
-            if has_remove_keyword {
                 if !&bookmarks.is_empty() {
                     let bookmarks_options = get_bookmarks_select_options();
                     let bookmarks_default_value = get_bookmarks_select_options_default_value();
@@ -242,16 +214,19 @@ fn main() {
                             get_trash_icon().unwrap(),
                             "Remove Bookmark",
                             ResultAction::DialogAction(
-                                DialogAction::new(EXTENSION_ID, "Remove Bookmark", "remove_bookmark")
-                                    .button_text("Remove Bookmark")
-                                    .fields(vec![DialogField::Select(SelectField::new(
-                                        "bookmark",
-                                        &bookmarks_default_value,
-                                        "Remove Bookmark",
-                                        "Select the bookmark to remove",
-                                        bookmarks_options,
-                                    ))])
-                                    .to_owned(),
+                                DialogAction::new(
+                                    EXTENSION_ID,
+                                    "Remove Bookmark",
+                                    "remove_bookmark",
+                                )
+                                .button_text("Remove Bookmark")
+                                .fields(vec![DialogField::Select(SelectField::new(
+                                    "bookmark",
+                                    &bookmarks_default_value,
+                                    "Remove Bookmark",
+                                    "Select the bookmark to remove",
+                                    bookmarks_options,
+                                ))]),
                             ),
                         ),
                     ));
@@ -274,8 +249,7 @@ fn main() {
                                         "Remove Group",
                                         "Select the group to remove",
                                         groups_options,
-                                    ))])
-                                    .to_owned(),
+                                    ))]),
                             ),
                         ),
                     ));
@@ -283,6 +257,20 @@ fn main() {
 
                 emit_results(&results);
             }
+
+            let mut has_edit_keyword = false;
+
+            for (index, text) in splitted_search_text.iter().enumerate() {
+                if index == 0 {
+                    has_edit_keyword = text.trim().to_lowercase() == "edit";
+                } else if index == 0 && !has_edit_keyword {
+                    next_text = next_text + " " + text;
+                } else {
+                    next_text = next_text + " " + text;
+                }
+            }
+
+            next_text = next_text.trim().to_owned();
 
             if has_edit_keyword {
                 if !groups.is_empty() && !next_text.is_empty() {
@@ -298,24 +286,20 @@ fn main() {
                                 check_options.push(
                                     CheckOption::new(&bookmark.id.to_string(), &bookmark.name)
                                         .checked(group.bookmarks.contains(&bookmark.id))
-                                        .description("This is a description")
-                                        .to_owned(),
+                                        .description("This is a description"),
                                 );
                             }
 
                             fields.push(DialogField::Input(
-                                InputField::new()
-                                    .id("name")
+                                InputField::new("name")
                                     .title("Name")
                                     .description("The group name")
-                                    .value(&group.name)
-                                    .to_owned(),
+                                    .value(&group.name),
                             ));
 
                             fields.push(DialogField::CheckGroup(
                                 CheckGroup::new(&format!("group-{}", group.id), "Bookmarks")
-                                    .options(check_options)
-                                    .to_owned(),
+                                    .options(check_options),
                             ));
 
                             results.push(SimpleKLResult::IconWithText(
@@ -328,8 +312,48 @@ fn main() {
                                             &format!("Edit {}", &group.name),
                                             "edit_group",
                                         )
+                                        .fields(fields),
+                                    ),
+                                ),
+                            ))
+                        }
+                    }
+                }
+
+                if !bookmarks.is_empty() && !next_text.is_empty() {
+                    for bookmark in bookmarks.to_owned() {
+                        if fuzzy_matcher
+                            .fuzzy_match(&bookmark.name, &next_text)
+                            .is_some()
+                        {
+                            let mut fields: Vec<DialogField> = vec![];
+
+                            fields.push(DialogField::Input(
+                                InputField::new("name")
+                                    .value(&bookmark.name)
+                                    .description("The bookmark name")
+                                    .placeholder("Name"),
+                            ));
+
+                            fields.push(DialogField::Input(
+                                InputField::new(&format!("url-{}", &bookmark.id))
+                                    .value(&bookmark.url)
+                                    .description("The bookmark url")
+                                    .placeholder("Url"),
+                            ));
+
+                            results.push(SimpleKLResult::IconWithText(
+                                IconWithTextResult::new_with_color(
+                                    get_pencil_icon().unwrap(),
+                                    &format!("Edit {}", &bookmark.name),
+                                    ResultAction::DialogAction(
+                                        DialogAction::new(
+                                            EXTENSION_ID,
+                                            &format!("Edit {}", &bookmark.name),
+                                            "edit_bookmark",
+                                        )
                                         .fields(fields)
-                                        .to_owned(),
+                                        .args(vec![]),
                                     ),
                                 ),
                             ))
@@ -577,6 +601,11 @@ fn main() {
                     .expect("Error wrting bookmarks file");
 
                 notify("Edit Group", &format!("Group edited successfully"));
+            }
+
+            if action == "edit_bookmark" {
+            
+                
             }
 
             if action == "edit" {
