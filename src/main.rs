@@ -29,8 +29,6 @@ use std::{env, fs};
 pub mod bookmarks;
 pub mod resources;
 
-//
-
 fn get_bookmarks_folder_path() -> Option<PathBuf> {
     if cfg!(target_os = "linux") {
         let mut path = get_home_path().expect("Error getting home path");
@@ -219,14 +217,14 @@ fn main() {
                                     "Remove Bookmark",
                                     "remove_bookmark",
                                 )
-                                .button_text("Remove Bookmark")
-                                .fields(vec![DialogField::Select(SelectField::new(
-                                    "bookmark",
-                                    &bookmarks_default_value,
-                                    "Remove Bookmark",
-                                    "Select the bookmark to remove",
-                                    bookmarks_options,
-                                ))]),
+                                    .button_text("Remove Bookmark")
+                                    .fields(vec![DialogField::Select(SelectField::new(
+                                        "bookmark",
+                                        &bookmarks_default_value,
+                                        "Remove Bookmark",
+                                        "Select the bookmark to remove",
+                                        bookmarks_options,
+                                    ))]),
                             ),
                         ),
                     ));
@@ -312,7 +310,8 @@ fn main() {
                                             &format!("Edit {}", &group.name),
                                             "edit_group",
                                         )
-                                        .fields(fields),
+                                            .fields(fields)
+                                            .args(vec![group.id.to_string()]),
                                     ),
                                 ),
                             ))
@@ -336,7 +335,7 @@ fn main() {
                             ));
 
                             fields.push(DialogField::Input(
-                                InputField::new(&format!("url-{}", &bookmark.id))
+                                InputField::new("url")
                                     .value(&bookmark.url)
                                     .description("The bookmark url")
                                     .placeholder("Url"),
@@ -352,8 +351,8 @@ fn main() {
                                             &format!("Edit {}", &bookmark.name),
                                             "edit_bookmark",
                                         )
-                                        .fields(fields)
-                                        .args(vec![]),
+                                            .fields(fields)
+                                            .args(vec![bookmark.id.to_string()]),
                                     ),
                                 ),
                             ))
@@ -604,8 +603,16 @@ fn main() {
             }
 
             if action == "edit_bookmark" {
-            
-                
+                println!("{:?}", get_dialog_results());
+                /*
+                let dialog_result = get_dialog_results().unwrap().get(0).unwrap().to_owned();
+                let bookmark_id = dialog_result.args.get(0).unwrap();
+                let bookmark_name = get_dialog_result("name").unwrap().value;
+                let bookmark_url = get_dialog_result("url").unwrap().value;
+
+                println!("Url: {}, Name: {}", bookmark_url, bookmark_name);
+
+                 */
             }
 
             if action == "edit" {

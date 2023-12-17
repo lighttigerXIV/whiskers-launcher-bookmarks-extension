@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 simple_kl_rs = { git = "https://github.com/lighttigerXIV/simple-kl-rs", branch = "master" }
+#simple_kl_rs = {path = "/home/lighttigerxiv/Coding/Rust/Projects/simple-kl-rs"}
 serde = "1.0.181"
 serde_yaml = "0.9.25"
 fuzzy-matcher = "0.3.7"
