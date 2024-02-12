@@ -1,39 +1,57 @@
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct BookmarksFile {
-    pub bookmarks: Vec<Bookmark>,
-    pub groups: Vec<BookmarkGroup>,
-}
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    path::PathBuf,
+};
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+use crate::get_config_dir;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Bookmark {
     pub id: usize,
     pub name: String,
-    pub(crate) url: String,
+    pub url: String,
 }
 
 impl Bookmark {
-    pub fn new(id: usize, name: &str, url: &str) -> Self {
-        return Bookmark {
+    pub fn new(id: usize, name: impl Into<String>, url: impl Into<String>) -> Self {
+        return Self {
             id,
-            name: name.to_owned(),
-            url: url.to_owned(),
+            name: name.into(),
+            url: url.into(),
         };
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct BookmarkGroup {
-    pub id: usize,
-    pub name: String,
-    pub bookmarks: Vec<usize>,
+// ===================================
+// Functions
+// ===================================
+pub fn get_bookmarks_path() -> PathBuf {
+    let mut path = get_config_dir();
+    path.push("bookmarks.json");
+
+    return path;
 }
 
-impl BookmarkGroup {
-    pub fn new(id: usize, name: &str, bookmarks: Vec<usize>) -> Self {
-        return BookmarkGroup {
-            id,
-            name: name.to_owned(),
-            bookmarks,
-        };
+pub fn get_bookmarks() -> Vec<Bookmark> {
+    let path = get_bookmarks_path();
+
+    if let Ok(content) = fs::read_to_string(&path) {
+        if let Ok(bookmarks) = serde_json::from_str::<Vec<Bookmark>>(&content) {
+            return bookmarks;
+        }
     }
+
+    return vec![];
+}
+
+pub fn write_bookmarks(bookmarks: Vec<Bookmark>){
+    let config_dir = get_config_dir();
+
+    if !config_dir.exists(){
+        fs::create_dir_all(&config_dir).unwrap();
+    }
+
+    let bookmarks_json = serde_json::to_string_pretty(&bookmarks).unwrap();
+    fs::write(&get_bookmarks_path(), &bookmarks_json).unwrap();
 }

@@ -1,8 +1,0 @@
-id: "com-lighttigerxiv-bookmarks"
-version: "0.2.0"
-name: Bookmarks
-description: This extension lets you open your favourite websites right from the launcher
-os: 
-  - linux
-  - windows
-keyword: bm

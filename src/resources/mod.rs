@@ -1,48 +1,11 @@
-use std::path::PathBuf;
-use simple_kl_rs::paths::get_extension_directory;
+use whiskers_launcher_rs::api::extensions::get_extension_dir;
 
-pub const EXTENSION_ID: &str = "com-lighttigerxiv-bookmarks";
+use crate::EXTENSION_ID;
 
-pub fn get_icons_dir()-> Option<PathBuf>{
-    let mut path = get_extension_directory(EXTENSION_ID)?;
-    path.push("src");
-    path.push("resources");
-    path.push("icons");
+pub fn get_icon(name: impl Into<String>) -> String {
+    let name = name.into();
+    let mut path = get_extension_dir(EXTENSION_ID).unwrap();
+    path.push(format!("src/resources/icons/{}", &name));
 
-    return Some(path)
-}
-
-pub fn get_bookmark_icon()-> Option<PathBuf>{
-    let mut path = get_icons_dir()?;
-    path.push("bookmark.svg");
-    
-    return Some(path)
-}
-
-pub fn get_folder_icon()-> Option<PathBuf>{
-    let mut path = get_icons_dir()?;
-    path.push("folder.svg");
-    
-    return Some(path)
-}
-
-pub fn get_pencil_icon()-> Option<PathBuf>{
-    let mut path = get_icons_dir()?;
-    path.push("pencil.svg");
-    
-    return Some(path)
-}
-
-pub fn get_plus_icon()-> Option<PathBuf>{
-    let mut path = get_icons_dir()?;
-    path.push("plus.svg");
-    
-    return Some(path)
-}
-
-pub fn get_trash_icon()-> Option<PathBuf>{
-    let mut path = get_icons_dir()?;
-    path.push("trash.svg");
-    
-    return Some(path)
+    return path.into_os_string().into_string().unwrap();
 }
