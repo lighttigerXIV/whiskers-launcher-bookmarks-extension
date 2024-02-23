@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="preview.webp" width="360">
+</div>
+
 # About
 This extension let's you add bookmarks and groups of bookmarks to whiskers launcher. It makes opening your favourite websites easier.
 
