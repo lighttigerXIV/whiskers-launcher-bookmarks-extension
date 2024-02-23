@@ -10,7 +10,7 @@
     {
       "id": "copy_url",
       "title": "Copy Url",
-      "description": "Copy urls instead of opening them",
+      "description": "Copy urls instead of opening them. If enabled, groups feature will be disabled",
       "setting_type": "toggle",
       "default_value": "false",
       "os": ["*"]

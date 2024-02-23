@@ -1,7 +1,7 @@
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use whiskers_launcher_rs::{
     actions,
-    api::extensions::{send_extension_results, Context},
+    api::extensions::{get_extension_setting, send_extension_results, Context},
     dialog::{self, DialogField},
     results::{self, WhiskersResult},
 };
@@ -48,6 +48,7 @@ fn show_main_results() {
     let mut results = Vec::<WhiskersResult>::new();
     let mut add_bookmark_fields = Vec::<DialogField>::new();
     let mut creat_group_fields = Vec::<DialogField>::new();
+    let copy_url = as_bool(get_extension_setting(EXTENSION_ID, "copy_url").unwrap());
 
     add_bookmark_fields.push(DialogField::Input(
         dialog::Input::new("name", "Name", "")
@@ -61,17 +62,19 @@ fn show_main_results() {
             .placeholder("Url"),
     ));
 
-    creat_group_fields.push(DialogField::Input(
-        dialog::Input::new("name", "Name", "")
-            .description("The group name")
-            .placeholder("Name"),
-    ));
+    if !copy_url {
+        creat_group_fields.push(DialogField::Input(
+            dialog::Input::new("name", "Name", "")
+                .description("The group name")
+                .placeholder("Name"),
+        ));
 
-    for bookmark in get_bookmarks() {
-        creat_group_fields.push(DialogField::Toggle(
-            dialog::Toggle::new(&bookmark.id.to_string(), &bookmark.name, false)
-                .description("Toggle if you want to add the bookmark to the group"),
-        ))
+        for bookmark in get_bookmarks() {
+            creat_group_fields.push(DialogField::Toggle(
+                dialog::Toggle::new(&bookmark.id.to_string(), &bookmark.name, false)
+                    .description("Toggle if you want to add the bookmark to the group"),
+            ))
+        }
     }
 
     results.push(WhiskersResult::Text(
@@ -91,22 +94,24 @@ fn show_main_results() {
         .tint_icon(true),
     ));
 
-    results.push(WhiskersResult::Text(
-        results::Text::new(
-            "Create group",
-            actions::Action::Dialog(
-                actions::Dialog::new(
-                    EXTENSION_ID,
-                    "Create Group",
-                    "create_group",
-                    creat_group_fields,
-                )
-                .primary_button_text("Create Group"),
-            ),
-        )
-        .icon(get_icon("plus.svg"))
-        .tint_icon(true),
-    ));
+    if !copy_url {
+        results.push(WhiskersResult::Text(
+            results::Text::new(
+                "Create group",
+                actions::Action::Dialog(
+                    actions::Dialog::new(
+                        EXTENSION_ID,
+                        "Create Group",
+                        "create_group",
+                        creat_group_fields,
+                    )
+                    .primary_button_text("Create Group"),
+                ),
+            )
+            .icon(get_icon("plus.svg"))
+            .tint_icon(true),
+        ));
+    }
 
     send_extension_results(results);
 }
@@ -117,33 +122,49 @@ fn show_search_results(search_text: impl Into<String>) {
     let bookmarks = get_bookmarks();
     let groups = get_groups();
     let matcher = SkimMatcherV2::default();
+    let copy_url = as_bool(get_extension_setting(EXTENSION_ID, "copy_url").unwrap());
 
-    for group in groups {
-        if matcher.fuzzy_match(&group.name, &search_text).is_some() {
-            results.push(WhiskersResult::Text(
-                results::Text::new(
-                    format!("Open {}", &group.name),
-                    actions::Action::Extension(
-                        actions::Extension::new(EXTENSION_ID, "open_group")
-                            .args(vec![group.id.to_string()]),
-                    ),
-                )
-                .icon(get_icon("dir.svg"))
-                .tint_icon(true),
-            ));
+    if !copy_url {
+        for group in groups {
+            if matcher.fuzzy_match(&group.name, &search_text).is_some() {
+                results.push(WhiskersResult::Text(
+                    results::Text::new(
+                        format!("Open {}", &group.name),
+                        actions::Action::Extension(
+                            actions::Extension::new(EXTENSION_ID, "open_group")
+                                .args(vec![group.id.to_string()]),
+                        ),
+                    )
+                    .icon(get_icon("dir.svg"))
+                    .tint_icon(true),
+                ));
+            }
         }
     }
 
     for bookmark in bookmarks {
         if matcher.fuzzy_match(&bookmark.name, &search_text).is_some() {
-            results.push(WhiskersResult::Text(
-                results::Text::new(
-                    format!("Open {}", &bookmark.name),
-                    actions::Action::OpenUrl(actions::OpenUrl::new(&bookmark.url)),
-                )
-                .icon(get_icon("bookmark.svg"))
-                .tint_icon(true),
-            ))
+            if copy_url {
+                results.push(WhiskersResult::Text(
+                    results::Text::new(
+                        format!("Copy {}", &bookmark.url),
+                        actions::Action::CopyToClipboard(actions::CopyToClipboard::new(
+                            &bookmark.url,
+                        )),
+                    )
+                    .icon(get_icon("bookmark.svg"))
+                    .tint_icon(true),
+                ));
+            } else {
+                results.push(WhiskersResult::Text(
+                    results::Text::new(
+                        format!("Open {}", &bookmark.name),
+                        actions::Action::OpenUrl(actions::OpenUrl::new(&bookmark.url)),
+                    )
+                    .icon(get_icon("bookmark.svg"))
+                    .tint_icon(true),
+                ));
+            }
         }
     }
 
@@ -279,4 +300,11 @@ fn show_edit_results(search_text: impl Into<String>) {
     }
 
     send_extension_results(results);
+}
+
+fn as_bool(value: String) -> bool {
+    match value.as_str() {
+        "true" => true,
+        _ => false,
+    }
 }
