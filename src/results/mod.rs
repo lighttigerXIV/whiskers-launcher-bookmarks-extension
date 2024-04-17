@@ -47,7 +47,7 @@ pub fn handle_results(context: Context) {
 fn show_main_results() {
     let mut results = Vec::<WhiskersResult>::new();
     let mut add_bookmark_fields = Vec::<DialogField>::new();
-    let mut creat_group_fields = Vec::<DialogField>::new();
+    let mut create_group_fields = Vec::<DialogField>::new();
     let copy_url = as_bool(get_extension_setting(EXTENSION_ID, "copy_url").unwrap());
 
     add_bookmark_fields.push(DialogField::Input(
@@ -63,16 +63,19 @@ fn show_main_results() {
     ));
 
     if !copy_url {
-        creat_group_fields.push(DialogField::Input(
+        create_group_fields.push(DialogField::Input(
             dialog::Input::new("name", "Name", "")
                 .description("The group name")
                 .placeholder("Name"),
         ));
 
-        for bookmark in get_bookmarks() {
-            creat_group_fields.push(DialogField::Toggle(
+        let mut bookmarks = get_bookmarks();
+        bookmarks.sort_by_key(|b| b.name.to_owned());
+
+        for bookmark in bookmarks {
+            create_group_fields.push(DialogField::Toggle(
                 dialog::Toggle::new(&bookmark.id.to_string(), &bookmark.name, false)
-                    .description("Toggle if you want to add the bookmark to the group"),
+                    .description("Toggle to add the bookmark to the group"),
             ))
         }
     }
@@ -103,7 +106,7 @@ fn show_main_results() {
                         EXTENSION_ID,
                         "Create Group",
                         "create_group",
-                        creat_group_fields,
+                        create_group_fields,
                     )
                     .primary_button_text("Create Group"),
                 ),
@@ -216,7 +219,9 @@ fn show_delete_results(search_text: impl Into<String>) {
 fn show_edit_results(search_text: impl Into<String>) {
     let search_text = search_text.into();
     let mut results = Vec::<WhiskersResult>::new();
-    let bookmarks = get_bookmarks();
+    let mut bookmarks = get_bookmarks();
+    bookmarks.sort_by_key(|b| b.name.to_owned());
+
     let groups = get_groups();
     let matcher = SkimMatcherV2::default();
 

@@ -1,7 +1,7 @@
 {
   "id": "lighttigerxiv/bookmarks",
   "name": "Bookmarks",
-  "version_name": "1.0.0",
+  "version_name": "1.0.1",
   "version_code": 1,
   "description": "Open or copy urls right from the launcher",
   "os": ["*"],
