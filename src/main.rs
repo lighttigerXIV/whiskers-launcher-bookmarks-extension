@@ -1,29 +1,21 @@
-use std::path::PathBuf;
+pub mod actions;
+pub mod icons;
+pub mod paths;
+pub mod results;
+pub mod settings;
 
 use actions::handle_actions;
 use results::handle_results;
-use whiskers_launcher_rs::api::extensions::{self, get_extension_context};
-
-mod actions;
-mod bookmarks;
-mod groups;
-mod resources;
-mod results;
+use whiskers_launcher_rs::api::extensions::{get_extension_request, ActionContext};
 
 pub const EXTENSION_ID: &str = "lighttigerxiv/bookmarks";
 
-pub fn get_config_dir() -> PathBuf {
-    let mut path = dirs::config_dir().unwrap();
-    path.push("lighttigerxiv-wl-bookmarks");
+#[tokio::main]
+async fn main() {
+    let request = get_extension_request();
 
-    path
-}
-
-fn main() {
-    let context = get_extension_context().unwrap();
-
-    match context.action {
-        extensions::Action::GetResults => handle_results(context.to_owned()),
-        extensions::Action::RunAction => handle_actions(context.to_owned()),
+    match request.action_context {
+        ActionContext::ResultsRequest => handle_results(request.to_owned()),
+        ActionContext::RunAction => handle_actions(request.to_owned()).await,
     }
 }

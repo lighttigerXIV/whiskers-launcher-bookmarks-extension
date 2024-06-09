@@ -1,231 +1,209 @@
-use std::process::exit;
+use std::{fs, io::Cursor};
 
+use image::{io::Reader, ImageFormat};
+use reqwest::Client;
 use whiskers_launcher_rs::{
-    api::extensions::{get_extension_dialog_response, Context},
-    others::send_notification,
+    api::extensions::{get_dialog_response, get_extension_request, ExtensionRequest},
+    utils::send_notification,
 };
 
 use crate::{
-    bookmarks::{get_bookmarks, write_bookmarks, Bookmark},
-    groups::{get_groups, write_groups, Group},
+    paths::get_favicons_dir,
+    settings::{
+        functions::{get_settings, write_settings},
+        Bookmark, Group,
+    },
 };
 
-pub fn handle_actions(context: Context) {
-    let action = context.to_owned().extension_action.unwrap();
+pub async fn handle_actions(request: ExtensionRequest) {
+    let action = request.to_owned().extension_action.unwrap();
 
-    if action == "create_bookmark" {
-        create_bookmark();
-    }
-
-    if action == "delete_bookmark" {
-        delete_bookmark(context.to_owned());
-    }
-
-    if action == "edit_bookmark" {
-        edit_bookmark();
-    }
-
-    if action == "create_group" {
-        create_group()
-    }
-
-    if action == "delete_group" {
-        delete_group(context.to_owned());
-    }
-
-    if action == "edit_group" {
-        edit_group();
-    }
-
-    if action == "open_group" {
-        open_group(context.to_owned())
+    match action.as_str() {
+        "create-bookmark" => create_bookmark().await,
+        "create-group" => create_group(),
+        "edit-bookmark" => edit_bookmark().await,
+        "edit-group" => edit_group(),
+        "open-group" => open_group().await,
+        _ => {}
     }
 }
 
-fn create_bookmark() {
-    let response = get_extension_dialog_response().unwrap();
+async fn create_bookmark() {
+    let response = get_dialog_response();
     let name = response.to_owned().get_result_value("name").unwrap();
     let url = response.to_owned().get_result_value("url").unwrap();
 
-    if name.is_empty() || url.is_empty() {
-        send_notification("Bookmarks", "Fields must not be empty");
-        exit(0);
-    }
+    let mut settings = get_settings();
+    let mut bookmark = Bookmark::new(&name, &url);
 
-    let mut bookmarks = get_bookmarks();
+    if response.to_owned().get_result_value("use-icon").unwrap() == "true" {
+        let url = format!("https://www.google.com/s2/favicons?domain={}&sz=256", &url);
 
-    if let Some(bigger_bookmark) = bookmarks.iter().max_by_key(|b| b.id) {
-        bookmarks.push(Bookmark::new(bigger_bookmark.id + 1, name, url));
-    } else {
-        bookmarks.push(Bookmark::new(0, name, url));
-    }
+        let request = Client::new().get(&url).send().await;
 
-    write_bookmarks(bookmarks);
-    send_notification("Bookmarks", "Bookmark created successfully");
+        match request {
+            Ok(response) => {
+                if response.status().is_success() {
+                    let bytes = response.bytes().await.unwrap();
 
-    exit(1);
-}
+                    let mut path = get_favicons_dir();
 
-fn delete_bookmark(context: Context) {
-    let args = context.custom_args;
-    let id = args[0].to_owned();
-    let bookmarks: Vec<Bookmark> = get_bookmarks()
-        .iter()
-        .map(|b| b.to_owned())
-        .filter(|b| b.id.to_string() != id)
-        .collect();
+                    if !path.exists() {
+                        fs::create_dir_all(&path).expect("Error creating directory");
+                    }
 
-    let mut groups = Vec::<Group>::new();
+                    path.push(format!("{}.png", bookmark.id));
 
-    for group in get_groups() {
-        if group.bookmarks.iter().any(|b| b.to_string() == id) {
-            let mut new_group = group;
-            new_group.bookmarks = new_group
-                .bookmarks
-                .to_owned()
-                .iter()
-                .map(|b| b.to_owned())
-                .filter(|b| b.to_string() != id)
-                .collect();
+                    let image = Reader::new(Cursor::new(&bytes))
+                        .with_guessed_format()
+                        .unwrap()
+                        .decode()
+                        .unwrap();
 
-            groups.push(new_group);
-        } else {
-            groups.push(group);
+                    image
+                        .save_with_format(&path, ImageFormat::Png)
+                        .expect("Error saving image");
+
+                    bookmark.icon_path(&path.into_os_string().into_string().unwrap());
+                }
+            }
+            Err(_) => {
+                send_notification(
+                    "Error",
+                    "Error getting icon. Make sure you have a valid url and internet connection",
+                );
+            }
         }
     }
 
-    write_bookmarks(bookmarks);
-    write_groups(groups);
-    exit(0);
-}
+    settings.bookmarks.push(bookmark);
 
-fn edit_bookmark() {
-    let response = get_extension_dialog_response().unwrap();
-    let name = response.to_owned().get_result_value("name").unwrap();
-    let url = response.to_owned().get_result_value("url").unwrap();
-    let id = response.to_owned().args.unwrap()[0].to_owned();
+    write_settings(settings);
 
-    if name.trim().is_empty() || url.trim().is_empty() {
-        send_notification("Bookmarks", "Can't have empty fields");
-        exit(0);
-    }
-
-    let mut bookmarks = Vec::<Bookmark>::new();
-
-    for bookmark in get_bookmarks() {
-        if bookmark.id.to_string() == id {
-            bookmarks.push(Bookmark::new(bookmark.id, name.to_owned(), url.to_owned()))
-        } else {
-            bookmarks.push(bookmark);
-        }
-    }
-
-    write_bookmarks(bookmarks);
-    send_notification("Bookmarks", "Bookmark edited successfully");
-    exit(1);
+    send_notification("Create bookmark", "Bookmark created successfully");
 }
 
 fn create_group() {
-    let response = get_extension_dialog_response().unwrap();
+    let mut settings = get_settings();
+    let response = get_dialog_response();
+    let name = response.to_owned().get_result_value("name").unwrap();
+    let icon_path = response.to_owned().get_result_value("icon-path").unwrap();
+    let tint_icon = response.to_owned().get_result_value("tint-icon").unwrap();
     let results = response.results;
-    let mut name = "".to_string();
     let mut bookmarks_ids = Vec::<usize>::new();
 
     for result in results {
-        if result.id == "name" {
-            if result.value.is_empty() {
-                send_notification("Bookmarks", "Can't have empty group name");
-                exit(0);
-            }
-
-            name = result.value.to_owned();
-        }
-
-        if result.value == "true" {
-            bookmarks_ids.push(result.id.parse().unwrap())
+        if result.field_value == "true" {
+            bookmarks_ids.push(result.field_id.parse().unwrap());
         }
     }
 
-    let mut groups = get_groups();
+    let mut group = Group::new(name, bookmarks_ids).tint_icon(tint_icon == "true");
 
-    if let Some(bigger_group) = groups.iter().max_by_key(|g| g.id) {
-        groups.push(Group::new(bigger_group.id + 1, name, bookmarks_ids));
-    } else {
-        groups.push(Group::new(0, name, bookmarks_ids));
+    if !icon_path.is_empty() {
+        group.icon_path(icon_path);
     }
 
-    write_groups(groups);
+    settings.groups.push(group);
 
-    send_notification("Bookmarks", "Group added successfully");
-    exit(1);
+    write_settings(settings);
 }
 
-fn delete_group(context: Context) {
-    let args = context.custom_args;
-    let id = args[0].to_owned();
-    let groups: Vec<Group> = get_groups()
-        .iter()
-        .map(|g| g.to_owned())
-        .filter(|g| g.id.to_string() != id)
-        .collect();
+fn edit_group() {}
 
-    write_groups(groups);
-}
+async fn edit_bookmark() {
+    let response = get_dialog_response();
+    let name = response.to_owned().get_result_value("name").unwrap();
+    let url = response.to_owned().get_result_value("url").unwrap();
+    let use_icon = response.to_owned().get_result_value("use-icon").unwrap();
+    let bookmark_id: usize = response.to_owned().args.unwrap()[0].parse().unwrap();
 
-fn edit_group() {
-    let response = get_extension_dialog_response().unwrap();
-    let results = response.results;
-    let group_id = response.args.unwrap()[0].to_owned();
+    let mut settings = get_settings();
+    let mut bookmarks = Vec::<Bookmark>::new();
 
-    let mut new_name = "".to_string();
-    let mut bookmarks = Vec::<usize>::new();
+    for bookmark in settings.bookmarks {
+        if bookmark.id == bookmark_id {
+            let mut path = get_favicons_dir();
 
-    for result in results {
-        if result.to_owned().id == "name" {
-            if result.value.is_empty() {
-                send_notification("Bookmarks", "Can't have empty group name");
-                exit(0);
+            if use_icon == "true" {
+                let url = format!("https://www.google.com/s2/favicons?domain={}&sz=256", &url);
+
+                let request = Client::new().get(&url).send().await;
+
+                match request {
+                    Ok(response) => {
+                        if response.status().is_success() {
+                            let bytes = response.bytes().await.unwrap();
+
+                            if !path.exists() {
+                                fs::create_dir_all(&path).expect("Error creating directory");
+                            }
+
+                            path.push(format!("{}.png", bookmark.id));
+
+                            let image = Reader::new(Cursor::new(&bytes))
+                                .with_guessed_format()
+                                .unwrap()
+                                .decode()
+                                .unwrap();
+
+                            image
+                                .save_with_format(&path, ImageFormat::Png)
+                                .expect("Error saving image");
+                        }
+                    }
+                    Err(_) => {
+                        send_notification(
+                            "Error",
+                            "Error getting icon. Make sure you have a valid url and internet connection");
+                    }
+                }
             }
 
-            new_name = result.to_owned().value;
-        }
-
-        if result.to_owned().value == "true" {
-            bookmarks.push(result.id.parse().unwrap());
-        }
-    }
-
-    let mut groups = Vec::<Group>::new();
-
-    for group in get_groups() {
-        if group.id.to_string() == group_id {
-            groups.push(Group::new(
-                group.id,
-                new_name.to_owned(),
-                bookmarks.to_owned(),
-            ));
+            bookmarks.push(Bookmark {
+                id: bookmark_id.to_owned(),
+                icon_path: if use_icon == "true" {
+                    Some(path.into_os_string().into_string().unwrap())
+                } else {
+                    None
+                },
+                name: name.to_owned(),
+                url: url.to_owned(),
+            });
         } else {
-            groups.push(group);
+            bookmarks.push(bookmark.to_owned());
         }
     }
 
-    write_groups(groups);
+    settings.bookmarks = bookmarks;
+    write_settings(settings);
 }
 
-fn open_group(context: Context) {
-    let args = context.custom_args;
-    let group_id = args[0].to_owned();
-    let groups = get_groups();
+async fn open_group() {
+    let response = get_extension_request();
+    let args = response.args.expect("Expected argument with group id");
+    let group_id: usize = args
+        .get(0)
+        .expect("Expected group id")
+        .parse()
+        .expect("Error parsing group id");
 
-    for group in groups {
-        if group.id.to_string() == group_id {
-            let bookmarks = group.get_bookmarks();
+    let group = get_settings()
+        .groups
+        .iter()
+        .find(|group| group.id == group_id)
+        .expect("Expected group id")
+        .to_owned();
 
-            for bookmark in bookmarks {
-                open::that(&bookmark.url).unwrap();
-            }
+    let bookmarks = get_settings().bookmarks;
 
-            exit(1);
+    for bookmark_id in group.bookmarks_ids {
+        if let Some(bookmark) = bookmarks.iter().find(|b| b.id == bookmark_id) {
+            let bookmark = bookmark.to_owned();
+
+            std::thread::spawn(move || {
+                open::that(&bookmark.url).expect("Error opening bookmark");
+            });
         }
     }
 }

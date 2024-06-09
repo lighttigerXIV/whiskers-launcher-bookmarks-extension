@@ -1,19 +1,15 @@
 {
   "id": "lighttigerxiv/bookmarks",
   "name": "Bookmarks",
-  "version_name": "1.0.1",
-  "version_code": 1,
-  "description": "Open or copy urls right from the launcher",
-  "os": ["*"],
+  "description": "Open/Copy urls right from the launcher",
   "keyword": "bm",
   "settings": [
     {
-      "id": "copy_url",
+      "id": "copy-url",
       "title": "Copy Url",
       "description": "Copy urls instead of opening them. If enabled, groups feature will be disabled",
-      "setting_type": "toggle",
-      "default_value": "false",
-      "os": ["*"]
+      "setting_type": "Toggle",
+      "default_value": "false"
     }
   ]
 }
