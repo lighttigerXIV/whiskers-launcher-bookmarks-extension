@@ -1,9 +1,9 @@
 use whiskers_launcher_rs::{
     action::{
-        Action, DialogAction, ExtensionAction, Field, FileFilter, FilePickerField, InputField,
-        OpenURLAction, ToggleField,
+        Action, CopyAction, DialogAction, ExtensionAction, Field, FileFilter, FilePickerField,
+        InputField, OpenURLAction, ToggleField,
     },
-    api::extensions::{send_response, ExtensionRequest},
+    api::extensions::{get_extension_setting, send_response, ExtensionRequest},
     result::{TextResult, WLResult},
     utils::{fuzzy_matches, get_search},
 };
@@ -263,38 +263,47 @@ fn show_edit_results(search_text: &str) {
 fn show_search_results(search_text: &str) {
     let settings = get_settings();
     let mut results = Vec::<WLResult>::new();
+    let copy_url: bool = get_extension_setting(EXTENSION_ID, "copy-url").unwrap() == "true";
 
-    for group in settings.groups {
-        if fuzzy_matches(&group.name, search_text) {
-            let mut result = TextResult::new(
-                &group.name,
-                Action::new_extension(
-                    ExtensionAction::new(EXTENSION_ID, "open-group")
-                        .args(vec![group.id.to_string()]),
-                ),
-            );
+    if !copy_url {
+        for group in settings.groups {
+            if fuzzy_matches(&group.name, search_text) {
+                let mut result = TextResult::new(
+                    &group.name,
+                    Action::new_extension(
+                        ExtensionAction::new(EXTENSION_ID, "open-group")
+                            .args(vec![group.id.to_string()]),
+                    ),
+                );
 
-            if let Some(icon_path) = group.icon_path {
-                result.icon(&icon_path);
+                if let Some(icon_path) = group.icon_path {
+                    result.icon(&icon_path);
 
-                if group.tint_icon {
+                    if group.tint_icon {
+                        result.tint("accent");
+                    }
+                } else {
+                    result.icon(get_icon_path("folder"));
                     result.tint("accent");
                 }
-            } else {
-                result.icon(get_icon_path("folder"));
-                result.tint("accent");
-            }
 
-            results.push(WLResult::new_text(result));
+                results.push(WLResult::new_text(result));
+            }
         }
     }
 
     for bookmark in settings.bookmarks {
         if fuzzy_matches(&bookmark.name, search_text) {
-            let mut result = TextResult::new(
-                &bookmark.name,
-                Action::new_open_url(OpenURLAction::new(&bookmark.url)),
-            );
+            let mut result = match copy_url {
+                true => TextResult::new(
+                    &bookmark.name,
+                    Action::new_copy(CopyAction::new(&bookmark.url)),
+                ),
+                false => TextResult::new(
+                    &bookmark.name,
+                    Action::new_open_url(OpenURLAction::new(&bookmark.url)),
+                ),
+            };
 
             if let Some(icon_path) = bookmark.icon_path {
                 result.icon(&icon_path);
