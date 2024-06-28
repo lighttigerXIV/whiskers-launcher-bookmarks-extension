@@ -1,3 +1,6 @@
+//REQUIRED FOR EXTENSIONS ON WINDOWS
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 pub mod actions;
 pub mod icons;
 pub mod paths;
