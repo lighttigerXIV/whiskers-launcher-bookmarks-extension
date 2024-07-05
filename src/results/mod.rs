@@ -22,6 +22,8 @@ pub fn handle_results(request: ExtensionRequest) {
         match keyword.as_str() {
             "e" => show_edit_results(&search.search_text),
             "edit" => show_edit_results(&search.search_text),
+            "d" => show_delete_results(&search.search_text),
+            "delete" => show_delete_results(&search.search_text),
             _ => show_search_results(&search_text),
         }
     }
@@ -254,6 +256,61 @@ fn show_edit_results(search_text: &str) {
                     "accent"
                 }),
             ));
+        }
+    }
+
+    send_response(results);
+}
+
+fn show_delete_results(search_text: &str) {
+    let mut results = Vec::<WLResult>::new();
+    let settings = get_settings();
+
+    for group in settings.groups {
+        if fuzzy_matches(&group.name, search_text) {
+            let mut result = TextResult::new(
+                format!("Delete Group | {}", group.name),
+                Action::new_extension(
+                    ExtensionAction::new(EXTENSION_ID, "delete-group")
+                        .args(vec![group.id.to_string()]),
+                )
+                .ask_confirmation(true),
+            );
+
+            if let Some(icon_path) = group.icon_path {
+                result.icon(&icon_path);
+
+                if group.tint_icon {
+                    result.tint("accent");
+                }
+            } else {
+                result.icon(get_icon_path("trash"));
+                result.tint("accent");
+            }
+
+            results.push(WLResult::new_text(result));
+        }
+    }
+
+    for bookmark in settings.bookmarks {
+        if fuzzy_matches(&bookmark.name, search_text) {
+            let mut result = TextResult::new(
+                format!("Delete Bookmark | {}", bookmark.name),
+                Action::new_extension(
+                    ExtensionAction::new(EXTENSION_ID, "delete-bookmark")
+                        .args(vec![bookmark.id.to_string()]),
+                )
+                .ask_confirmation(true),
+            );
+
+            if let Some(icon_path) = bookmark.icon_path {
+                result.icon(&icon_path);
+            } else {
+                result.icon(get_icon_path("trash"));
+                result.tint("accent");
+            }
+
+            results.push(WLResult::new_text(result));
         }
     }
 

@@ -24,6 +24,8 @@ pub async fn handle_actions(request: ExtensionRequest) {
         "edit-bookmark" => edit_bookmark().await,
         "edit-group" => edit_group(),
         "open-group" => open_group().await,
+        "delete-bookmark" => delete_bookmark(),
+        "delete-group" => delete_group(),
         _ => {}
     }
 }
@@ -206,4 +208,48 @@ async fn open_group() {
             });
         }
     }
+}
+
+fn delete_bookmark() {
+    let request = get_extension_request();
+    let args = request.args.expect("Expected argument with bookmark");
+    let bookmark_id: usize = args
+        .get(0)
+        .expect("Expected bookmark id")
+        .parse()
+        .expect("Error parsing bookmark id");
+
+    let new_bookmarks: Vec<Bookmark> = get_settings()
+        .bookmarks
+        .iter()
+        .map(|b| b.to_owned())
+        .filter(|b| b.id != bookmark_id)
+        .collect();
+
+    let mut settings = get_settings();
+    settings.bookmarks = new_bookmarks;
+
+    write_settings(settings)
+}
+
+fn delete_group() {
+    let request = get_extension_request();
+    let args = request.args.expect("Expected argument with group");
+    let group_id: usize = args
+        .get(0)
+        .expect("Expected group id")
+        .parse()
+        .expect("Error parsing group id");
+
+    let new_groups: Vec<Group> = get_settings()
+        .groups
+        .iter()
+        .map(|g| g.to_owned())
+        .filter(|g| g.id != group_id)
+        .collect();
+
+    let mut settings = get_settings();
+    settings.groups = new_groups;
+
+    write_settings(settings)
 }
