@@ -1,9 +1,12 @@
 use std::{fs, io::Cursor};
 
-use image::{io::Reader, ImageFormat};
+use image::{ImageFormat, ImageReader};
 use reqwest::Client;
-use whiskers_launcher_rs::{
-    api::extensions::{get_dialog_response, get_extension_request, ExtensionRequest},
+use whiskers_launcher_core::{
+    features::{
+        core::extensions::{get_extension_request, get_form_response},
+        extensions::ExtensionRequest,
+    },
     utils::send_notification,
 };
 
@@ -15,30 +18,30 @@ use crate::{
     },
 };
 
-pub async fn handle_actions(request: ExtensionRequest) {
-    let action = request.to_owned().extension_action.unwrap();
+pub async fn on_run_commands(request: ExtensionRequest) {
+    let command = request.command.unwrap();
 
-    match action.as_str() {
+    match command.as_str() {
         "create-bookmark" => create_bookmark().await,
         "create-group" => create_group(),
         "edit-bookmark" => edit_bookmark().await,
         "edit-group" => edit_group(),
-        "open-group" => open_group().await,
+        "open-group" => open_group(),
         "delete-bookmark" => delete_bookmark(),
         "delete-group" => delete_group(),
         _ => {}
-    }
+    };
 }
 
 async fn create_bookmark() {
-    let response = get_dialog_response();
-    let name = response.to_owned().get_result_value("name").unwrap();
-    let url = response.to_owned().get_result_value("url").unwrap();
+    let response = get_form_response();
+    let name = response.get_result("name").unwrap().field_value;
+    let url = response.get_result("url").unwrap().field_value;
 
     let mut settings = get_settings();
     let mut bookmark = Bookmark::new(&name, &url);
 
-    if response.to_owned().get_result_value("use-icon").unwrap() == "true" {
+    if response.get_result("use-icon").unwrap().as_bool() {
         let url = format!("https://www.google.com/s2/favicons?domain={}&sz=256", &url);
 
         let request = Client::new().get(&url).send().await;
@@ -56,7 +59,7 @@ async fn create_bookmark() {
 
                     path.push(format!("{}.png", bookmark.id));
 
-                    let image = Reader::new(Cursor::new(&bytes))
+                    let image = ImageReader::new(Cursor::new(&bytes))
                         .with_guessed_format()
                         .unwrap()
                         .decode()
@@ -66,7 +69,8 @@ async fn create_bookmark() {
                         .save_with_format(&path, ImageFormat::Png)
                         .expect("Error saving image");
 
-                    bookmark.icon_path(&path.into_os_string().into_string().unwrap());
+                    bookmark =
+                        bookmark.set_icon_path(&path.into_os_string().into_string().unwrap());
                 }
             }
             Err(_) => {
@@ -87,23 +91,23 @@ async fn create_bookmark() {
 
 fn create_group() {
     let mut settings = get_settings();
-    let response = get_dialog_response();
-    let name = response.to_owned().get_result_value("name").unwrap();
-    let icon_path = response.to_owned().get_result_value("icon-path").unwrap();
-    let tint_icon = response.to_owned().get_result_value("tint-icon").unwrap();
+    let response = get_form_response();
+    let name = response.get_result("name").unwrap().field_value;
+    let icon_path = response.get_result("icon-path").unwrap().field_value;
+    let tint_icon = response.get_result("tint-icon").unwrap().field_value;
     let results = response.results;
     let mut bookmarks_ids = Vec::<usize>::new();
 
     for result in results {
-        if result.field_value == "true" {
+        if result.as_bool() {
             bookmarks_ids.push(result.field_id.parse().unwrap());
         }
     }
 
-    let mut group = Group::new(name, bookmarks_ids).tint_icon(tint_icon == "true");
+    let mut group = Group::new(name, bookmarks_ids).set_tint_icon(tint_icon == "true");
 
     if !icon_path.is_empty() {
-        group.icon_path(icon_path);
+        group = group.set_icon_path(icon_path);
     }
 
     settings.groups.push(group);
@@ -114,11 +118,11 @@ fn create_group() {
 fn edit_group() {}
 
 async fn edit_bookmark() {
-    let response = get_dialog_response();
-    let name = response.to_owned().get_result_value("name").unwrap();
-    let url = response.to_owned().get_result_value("url").unwrap();
-    let use_icon = response.to_owned().get_result_value("use-icon").unwrap();
-    let bookmark_id: usize = response.to_owned().args.unwrap()[0].parse().unwrap();
+    let response = get_form_response();
+    let name = response.get_result("name").unwrap().field_value;
+    let url = response.get_result("url").unwrap().field_value;
+    let use_icon = response.get_result("use-icon").unwrap().field_value;
+    let bookmark_id: usize = response.args[0].parse().unwrap();
 
     let mut settings = get_settings();
     let mut bookmarks = Vec::<Bookmark>::new();
@@ -143,7 +147,7 @@ async fn edit_bookmark() {
 
                             path.push(format!("{}.png", bookmark.id));
 
-                            let image = Reader::new(Cursor::new(&bytes))
+                            let image = ImageReader::new(Cursor::new(&bytes))
                                 .with_guessed_format()
                                 .unwrap()
                                 .decode()
@@ -181,9 +185,9 @@ async fn edit_bookmark() {
     write_settings(settings);
 }
 
-async fn open_group() {
+fn open_group() {
     let response = get_extension_request();
-    let args = response.args.expect("Expected argument with group id");
+    let args = response.args;
     let group_id: usize = args
         .get(0)
         .expect("Expected group id")
@@ -212,7 +216,7 @@ async fn open_group() {
 
 fn delete_bookmark() {
     let request = get_extension_request();
-    let args = request.args.expect("Expected argument with bookmark");
+    let args = request.args;
     let bookmark_id: usize = args
         .get(0)
         .expect("Expected bookmark id")
@@ -234,7 +238,7 @@ fn delete_bookmark() {
 
 fn delete_group() {
     let request = get_extension_request();
-    let args = request.args.expect("Expected argument with group");
+    let args = request.args;
     let group_id: usize = args
         .get(0)
         .expect("Expected group id")

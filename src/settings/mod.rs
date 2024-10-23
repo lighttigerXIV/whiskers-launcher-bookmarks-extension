@@ -40,12 +40,12 @@ impl Group {
         }
     }
 
-    pub fn icon_path(&mut self, icon_path: impl Into<String>) -> Self {
+    pub fn set_icon_path(mut self, icon_path: impl Into<String>) -> Self {
         self.icon_path = Some(icon_path.into());
         self.to_owned()
     }
 
-    pub fn tint_icon(&mut self, tint_icon: bool) -> Self {
+    pub fn set_tint_icon(&mut self, tint_icon: bool) -> Self {
         self.tint_icon = tint_icon;
         self.to_owned()
     }
@@ -76,7 +76,7 @@ impl Bookmark {
         }
     }
 
-    pub fn icon_path(&mut self, icon_path: impl Into<String>) -> Self {
+    pub fn set_icon_path(mut self, icon_path: impl Into<String>) -> Self {
         self.icon_path = Some(icon_path.into());
         self.to_owned()
     }

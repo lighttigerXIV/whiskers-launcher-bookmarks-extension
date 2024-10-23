@@ -1,20 +1,23 @@
-use whiskers_launcher_rs::{
-    action::{
-        Action, CopyAction, DialogAction, ExtensionAction, Field, FileFilter, FilePickerField,
-        InputField, OpenURLAction, ToggleField,
+use std::path::PathBuf;
+
+use sniffer_rs::sniffer::Sniffer;
+use whiskers_launcher_core::{
+    features::extensions::{get_extension_setting, send_search_results, ExtensionRequest},
+    results::{
+        CopyTextAction, FormField, FormFilePickerField, FormInputField, FormToggleField,
+        OpenFormAction, OpenLinkAction, ResultAction, RunExtensionAction, SearchResult,
+        SearchResults,
     },
-    api::extensions::{get_extension_setting, send_response, ExtensionRequest},
-    result::{TextResult, WLResult},
-    utils::{fuzzy_matches, get_search},
+    utils::get_search_query,
 };
 
-use crate::{icons::get_icon_path, settings::functions::get_settings, EXTENSION_ID};
+use crate::{icons::get_icon_path, settings::functions::get_settings, ID};
 
-pub fn handle_results(request: ExtensionRequest) {
+pub fn on_get_results(request: ExtensionRequest) {
     let search_text = request.search_text.unwrap();
-    let search = get_search(&search_text);
+    let search = get_search_query(&search_text);
 
-    if search_text.is_empty() {
+    if search_text.trim().is_empty() {
         show_default_results();
     }
 
@@ -24,354 +27,344 @@ pub fn handle_results(request: ExtensionRequest) {
             "edit" => show_edit_results(&search.search_text),
             "d" => show_delete_results(&search.search_text),
             "delete" => show_delete_results(&search.search_text),
-            _ => show_search_results(&search_text),
+            _ => show_results(&search_text),
         }
     }
 
-    show_search_results(&search_text);
+    show_results(&search_text);
 }
 
 fn show_default_results() {
-    let mut results = Vec::<WLResult>::new();
+    let mut results = Vec::<SearchResult>::new();
     let bookmark_fields = vec![
-        Field::new_input(
+        FormField::new_input_field(
             "name",
-            InputField::new("", "Name", "The name of the bookmark")
-                .placeholder("Type the bookmark name"),
+            FormInputField::new("Name", "The name of the bookmark")
+                .set_placeholder("Type the bookmark name")
+                .set_not_empty_validation(),
         ),
-        Field::new_input(
+        FormField::new_input_field(
             "url",
-            InputField::new("", "Url", "The url of the bookmark")
-                .placeholder("Type the bookmark url"),
+            FormInputField::new("Url", "The url of the bookmark")
+                .set_placeholder("Type the bookmark url")
+                .set_not_empty_validation(),
         ),
-        Field::new_toggle(
+        FormField::new_toggle_field(
             "use-icon",
-            ToggleField::new(
-                true,
+            FormToggleField::new(
                 "Icon",
-                "Uses the website icon instead of the default bookmark one",
+                "Use the website icon instead of the default bookmark one",
+                true,
             ),
         ),
     ];
 
     let mut group_fields = vec![
-        Field::new_input(
+        FormField::new_input_field(
             "name",
-            InputField::new("", "Name", "The name of the bookmark")
-                .placeholder("Type the bookmark name"),
+            FormInputField::new("Name", "The name of the bookmark")
+                .set_placeholder("Type the bookmark name")
+                .set_not_empty_validation(),
         ),
-        Field::new_file_picker(
+        FormField::new_file_picker_field(
             "icon-path",
-            FilePickerField::new("Icon (Optional)", "Select a icon for the group").filters(vec![
-                FileFilter::new(
-                    "Images",
-                    vec![
-                        "png".to_string(),
-                        "jpg".to_string(),
-                        "jpeg".to_string(),
-                        "svg".to_string(),
-                    ],
-                ),
-            ]),
+            FormFilePickerField::new("Icon (Optional)", "Select a icon for the group")
+                .set_image_file_types(),
         ),
-        Field::new_toggle(
+        FormField::new_toggle_field(
             "tint-icon",
-            ToggleField::new(false, "Tint icon", "Tint the group custom icon"),
+            FormToggleField::new("Tint icon", "Tint the group custom icon", false),
         ),
     ];
 
     for bookmark in get_settings().bookmarks {
-        group_fields.push(Field::new_toggle(
+        group_fields.push(FormField::new_toggle_field(
             &bookmark.id.to_string(),
-            ToggleField::new(
-                false,
+            FormToggleField::new(
                 &bookmark.name,
                 "Toggle to add this bookmark to the group",
+                false,
             ),
         ));
     }
 
-    results.push(WLResult::new_text(
-        TextResult::new(
+    results.push(
+        SearchResult::new(
             "Create Bookmark",
-            Action::new_dialog(DialogAction::new(
-                EXTENSION_ID,
-                "create-bookmark",
-                "Create a bookmark",
-                "Create",
-                bookmark_fields,
-            )),
+            ResultAction::new_open_form_action(
+                OpenFormAction::new(ID, "create-bookmark", bookmark_fields)
+                    .set_title("Create Bookmark")
+                    .set_action_text("Create"),
+            ),
         )
-        .icon(get_icon_path("plus"))
-        .tint("accent"),
-    ));
+        .set_icon(get_icon_path("plus"))
+        .set_accent_icon_tint(),
+    );
 
-    results.push(WLResult::new_text(
-        TextResult::new(
+    results.push(
+        SearchResult::new(
             "Create Group",
-            Action::new_dialog(DialogAction::new(
-                EXTENSION_ID,
-                "create-group",
-                "Create a group",
-                "Create",
-                group_fields,
-            )),
+            ResultAction::new_open_form_action(
+                OpenFormAction::new(ID, "create-group", group_fields)
+                    .set_title("Create Group")
+                    .set_action_text("Create"),
+            ),
         )
-        .icon(get_icon_path("plus"))
-        .tint("accent"),
-    ));
+        .set_icon(get_icon_path("plus"))
+        .set_accent_icon_tint(),
+    );
 
-    send_response(results);
+    send_search_results(SearchResults::new_list_results(results));
 }
 
 fn show_edit_results(search_text: &str) {
-    let mut results = Vec::<WLResult>::new();
+    let mut results = Vec::<SearchResult>::new();
     let settings = get_settings();
+    let sniffer = Sniffer::new();
 
     for group in settings.to_owned().groups {
-        if fuzzy_matches(&group.name, search_text) {
+        if sniffer.matches(&group.name, search_text) {
             let bookmarks_ids = group.to_owned().bookmarks_ids;
-            let mut fields = vec![
-                Field::new_input(
-                    "name",
-                    InputField::new(&group.name, "Name", "The name of the bookmark")
-                        .placeholder("Type the bookmark name"),
-                ),
-                Field::new_file_picker(
-                    "icon-path",
-                    FilePickerField::new("Icon (Optional)", "Select a icon for the group")
-                        .filters(vec![FileFilter::new(
-                            "Images",
-                            vec![
-                                "png".to_string(),
-                                "jpg".to_string(),
-                                "jpeg".to_string(),
-                                "svg".to_string(),
-                            ],
-                        )])
-                        .default_path(if let Some(path) = group.to_owned().icon_path {
-                            path
-                        } else {
-                            "".to_string()
-                        }),
-                ),
-                Field::new_toggle(
-                    "tint-icon",
-                    ToggleField::new(group.tint_icon, "Tint icon", "Tint the group custom icon"),
-                ),
-            ];
 
-            for bookmark in settings.to_owned().bookmarks {
-                fields.push(Field::new_toggle(
-                    &bookmark.id.to_string(),
-                    ToggleField::new(
-                        bookmarks_ids.contains(&bookmark.id),
-                        &bookmark.name,
-                        "Toggle to add this bookmark to the group",
-                    ),
-                ));
+            let name_field = FormField::new_input_field(
+                "name",
+                FormInputField::new("Name", "The name of the bookmark")
+                    .set_text(&group.name)
+                    .set_placeholder("Type the bookmark name")
+                    .set_not_empty_validation(),
+            );
+
+            let mut icon_picker_field =
+                FormFilePickerField::new("Icon (Optional)", "Select a icon for the group")
+                    .set_image_file_types();
+
+            if let Some(path) = group.to_owned().icon_path {
+                icon_picker_field = icon_picker_field.set_file_path(path);
             }
 
-            results.push(WLResult::new_text(
-                TextResult::new(
-                    format!("Edit Group || {}", &group.name),
-                    Action::new_dialog(
-                        DialogAction::new(EXTENSION_ID, "edit-group", "Edit Group", "Save", fields)
-                            .args(vec![group.id.to_string()]),
+            let icon_field = FormField::new_file_picker_field("icon-path", icon_picker_field);
+
+            let tint_icon_field = FormField::new_toggle_field(
+                "tint-icon",
+                FormToggleField::new("Tint icon", "Tint the group custom icon", group.tint_icon),
+            );
+
+            let mut fields = vec![name_field, icon_field, tint_icon_field];
+
+            for bookmark in settings.to_owned().bookmarks {
+                let field = FormField::new_toggle_field(
+                    &bookmark.id.to_string(),
+                    FormToggleField::new(
+                        &bookmark.name,
+                        "Toggle to add this bookmark to the group",
+                        bookmarks_ids.contains(&bookmark.id),
                     ),
-                )
-                .icon(if let Some(path) = group.to_owned().icon_path {
-                    path
-                } else {
-                    get_icon_path("pencil")
-                })
-                .tint(if group.to_owned().icon_path.is_some() {
-                    if group.to_owned().tint_icon {
-                        "accent"
-                    } else {
-                        ""
-                    }
-                } else {
-                    "accent"
-                }),
-            ));
+                );
+
+                fields.push(field);
+            }
+
+            let mut edit_group_result = SearchResult::new(
+                format!("Edit Group || {}", &group.name),
+                ResultAction::new_open_form_action(
+                    OpenFormAction::new(ID, "edit-group", fields)
+                        .set_title("Edit Group")
+                        .set_action_text("Save")
+                        .add_arg(group.id.to_string()),
+                ),
+            )
+            .set_icon(if let Some(path) = group.to_owned().icon_path {
+                PathBuf::from(path)
+            } else {
+                get_icon_path("pencil")
+            });
+
+            if group.icon_path.is_some() {
+                if group.tint_icon {
+                    edit_group_result = edit_group_result.set_accent_icon_tint();
+                }
+            } else {
+                edit_group_result = edit_group_result.set_accent_icon_tint();
+            }
+
+            results.push(edit_group_result);
         }
     }
 
     for bookmark in settings.bookmarks {
-        if fuzzy_matches(&bookmark.name, search_text) {
-            results.push(WLResult::new_text(
-                TextResult::new(
-                    format!("Edit Bookmark || {}", &bookmark.name),
-                    Action::new_dialog(
-                        DialogAction::new(
-                            EXTENSION_ID,
-                            "edit-bookmark",
-                            "Edit Bookmark",
-                            "Save",
-                            vec![
-                                Field::new_input(
-                                    "name",
-                                    InputField::new(
-                                        &bookmark.name,
-                                        "Name",
-                                        "The name of the bookmark",
-                                    )
-                                    .placeholder("Type the bookmark name"),
-                                ),
-                                Field::new_input(
-                                    "url",
-                                    InputField::new(
-                                        &bookmark.url,
-                                        "Url",
-                                        "The url of the bookmark",
-                                    )
-                                    .placeholder("Type the bookmark url"),
-                                ),
-                                Field::new_toggle(
-                                    "use-icon",
-                                    ToggleField::new(
-                                        if bookmark.to_owned().icon_path.is_some() {
-                                            true
-                                        } else {
-                                            false
-                                        },
-                                        "Icon",
-                                        "Uses the website icon instead of the default bookmark one",
-                                    ),
-                                ),
-                            ],
-                        )
-                        .args(vec![bookmark.id.to_string()]),
-                    ),
-                )
-                .icon(if let Some(path) = bookmark.to_owned().icon_path {
-                    path
-                } else {
-                    get_icon_path("pencil")
-                })
-                .tint(if bookmark.to_owned().icon_path.is_some() {
-                    ""
-                } else {
-                    "accent"
-                }),
-            ));
+        if sniffer.matches(&bookmark.name, search_text) {
+            let name_field = FormField::new_input_field(
+                "name",
+                FormInputField::new("Name", "The name of the bookmark")
+                    .set_text(&bookmark.name)
+                    .set_placeholder("Type the bookmark name")
+                    .set_not_empty_validation(),
+            );
+
+            let url_field = FormField::new_input_field(
+                "url",
+                FormInputField::new("Url", "The url of the bookmark")
+                    .set_text(&bookmark.url)
+                    .set_placeholder("Type the bookmark url")
+                    .set_not_empty_validation(),
+            );
+
+            let use_icon_field = FormField::new_toggle_field(
+                "use-icon",
+                FormToggleField::new(
+                    "Icon",
+                    "Uses the website icon instead of the default bookmark one",
+                    if bookmark.to_owned().icon_path.is_some() {
+                        true
+                    } else {
+                        false
+                    },
+                ),
+            );
+
+            let mut edit_bookmark_result = SearchResult::new(
+                format!("Edit Bookmark || {}", &bookmark.name),
+                ResultAction::new_open_form_action(
+                    OpenFormAction::new(
+                        ID,
+                        "edit-bookmark",
+                        vec![name_field, url_field, use_icon_field],
+                    )
+                    .set_title("Edit Bookmark")
+                    .set_action_text("Save")
+                    .add_arg(bookmark.id.to_string()),
+                ),
+            )
+            .set_icon(if let Some(path) = bookmark.to_owned().icon_path {
+                PathBuf::from(path)
+            } else {
+                get_icon_path("pencil")
+            });
+
+            if bookmark.icon_path.is_none(){
+                edit_bookmark_result = edit_bookmark_result.set_accent_icon_tint();
+            }
+
+            results.push(edit_bookmark_result);
         }
     }
 
-    send_response(results);
+    send_search_results(SearchResults::new_list_results(results));
 }
 
 fn show_delete_results(search_text: &str) {
-    let mut results = Vec::<WLResult>::new();
+    let mut results = Vec::<SearchResult>::new();
     let settings = get_settings();
+    let sniffer = Sniffer::new();
 
     for group in settings.groups {
-        if fuzzy_matches(&group.name, search_text) {
-            let mut result = TextResult::new(
+        if sniffer.matches(&group.name, search_text) {
+            let mut result = SearchResult::new(
                 format!("Delete Group | {}", group.name),
-                Action::new_extension(
-                    ExtensionAction::new(EXTENSION_ID, "delete-group")
-                        .args(vec![group.id.to_string()]),
+                ResultAction::new_run_extension_action(
+                    RunExtensionAction::new(ID, "delete-group").add_arg(group.id.to_string()),
                 )
-                .ask_confirmation(true),
+                .set_dangerous(true),
             );
 
             if let Some(icon_path) = group.icon_path {
-                result.icon(&icon_path);
+                result = result.set_icon(PathBuf::from(icon_path));
 
                 if group.tint_icon {
-                    result.tint("accent");
+                    result = result.set_accent_icon_tint();
                 }
             } else {
-                result.icon(get_icon_path("trash"));
-                result.tint("accent");
+                result = result
+                    .set_icon(get_icon_path("trash"))
+                    .set_accent_icon_tint();
             }
 
-            results.push(WLResult::new_text(result));
+            results.push(result);
         }
     }
 
     for bookmark in settings.bookmarks {
-        if fuzzy_matches(&bookmark.name, search_text) {
-            let mut result = TextResult::new(
+        if sniffer.matches(&bookmark.name, search_text) {
+            let mut result = SearchResult::new(
                 format!("Delete Bookmark | {}", bookmark.name),
-                Action::new_extension(
-                    ExtensionAction::new(EXTENSION_ID, "delete-bookmark")
-                        .args(vec![bookmark.id.to_string()]),
+                ResultAction::new_run_extension_action(
+                    RunExtensionAction::new(ID, "delete-bookmark").add_arg(bookmark.id.to_string()),
                 )
-                .ask_confirmation(true),
+                .set_dangerous(true),
             );
 
             if let Some(icon_path) = bookmark.icon_path {
-                result.icon(&icon_path);
+                result = result.set_icon(PathBuf::from(icon_path));
             } else {
-                result.icon(get_icon_path("trash"));
-                result.tint("accent");
+                result = result
+                    .set_icon(get_icon_path("trash"))
+                    .set_accent_icon_tint();
             }
 
-            results.push(WLResult::new_text(result));
+            results.push(result);
         }
     }
 
-    send_response(results);
+    send_search_results(SearchResults::new_list_results(results));
 }
 
-fn show_search_results(search_text: &str) {
+fn show_results(search_text: &str) {
     let settings = get_settings();
-    let mut results = Vec::<WLResult>::new();
-    let copy_url: bool = get_extension_setting(EXTENSION_ID, "copy-url").unwrap() == "true";
+    let mut results = Vec::<SearchResult>::new();
+    let copy_url: bool = get_extension_setting(ID, "copy-url").unwrap() == "true";
+    let sniffer = Sniffer::new();
 
     if !copy_url {
         for group in settings.groups {
-            if fuzzy_matches(&group.name, search_text) {
-                let mut result = TextResult::new(
+            if sniffer.matches(&group.name, search_text) {
+                let mut result = SearchResult::new(
                     &group.name,
-                    Action::new_extension(
-                        ExtensionAction::new(EXTENSION_ID, "open-group")
-                            .args(vec![group.id.to_string()]),
+                    ResultAction::new_run_extension_action(
+                        RunExtensionAction::new(ID, "open-group").add_arg(&group.id.to_string()),
                     ),
                 );
 
                 if let Some(icon_path) = group.icon_path {
-                    result.icon(&icon_path);
+                    result = result.set_icon(PathBuf::from(icon_path));
 
                     if group.tint_icon {
-                        result.tint("accent");
+                        result = result.set_accent_icon_tint();
                     }
                 } else {
-                    result.icon(get_icon_path("folder"));
-                    result.tint("accent");
+                    result = result
+                        .set_icon(get_icon_path("folder"))
+                        .set_accent_icon_tint();
                 }
 
-                results.push(WLResult::new_text(result));
+                results.push(result);
             }
         }
     }
 
     for bookmark in settings.bookmarks {
-        if fuzzy_matches(&bookmark.name, search_text) {
+        if sniffer.matches(&bookmark.name, search_text) {
             let mut result = match copy_url {
-                true => TextResult::new(
+                true => SearchResult::new(
                     &bookmark.name,
-                    Action::new_copy(CopyAction::new(&bookmark.url)),
+                    ResultAction::new_copy_text_action(CopyTextAction::new(&bookmark.url)),
                 ),
-                false => TextResult::new(
+                false => SearchResult::new(
                     &bookmark.name,
-                    Action::new_open_url(OpenURLAction::new(&bookmark.url)),
+                    ResultAction::new_open_link_action(OpenLinkAction::new(&bookmark.url)),
                 ),
             };
 
             if let Some(icon_path) = bookmark.icon_path {
-                result.icon(&icon_path);
+                result = result.set_icon(PathBuf::from(icon_path));
             } else {
-                result.icon(get_icon_path("bookmark"));
-                result.tint("accent");
+                result = result
+                    .set_icon(get_icon_path("bookmark"))
+                    .set_accent_icon_tint();
             }
 
-            results.push(WLResult::new_text(result));
+            results.push(result);
         }
     }
 
-    send_response(results);
+    send_search_results(SearchResults::new_list_results(results));
 }
